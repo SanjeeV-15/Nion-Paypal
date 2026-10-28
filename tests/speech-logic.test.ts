@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEndpointer, rankVoices, scoreVoice } from "../public/speech-logic.js";
 
 const voice = (name: string, lang = "en-US", localService = true) => ({ name, lang, localService });
@@ -183,5 +183,29 @@ describe("createEndpointer", () => {
     endpointer.update([{ transcript: "how much is left" }]);
     elapse();
     expect(heard).toEqual(["yes", "how much is left"]);
+  });
+});
+
+describe("createEndpointer with its default timers", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("works when setTimeout is as strict as a browser's", async () => {
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    // Browsers throw "Illegal invocation" unless setTimeout is called with no owner.
+    const strict = <F extends (...args: never[]) => unknown>(real: F) =>
+      function (this: unknown, ...args: Parameters<F>) {
+        if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+        return real(...args);
+      };
+    vi.stubGlobal("setTimeout", strict(realSet));
+    vi.stubGlobal("clearTimeout", strict(realClear));
+
+    const heard: string[] = [];
+    const endpointer = createEndpointer({ silenceMs: 10, onUtterance: (t) => heard.push(t) });
+    endpointer.update([{ transcript: "pay twelve dollars" }]);
+    endpointer.update([{ transcript: "pay twelve dollars to Sunrise Cafe" }]);
+    await new Promise((resolve) => realSet(resolve, 60));
+    expect(heard).toEqual(["pay twelve dollars to Sunrise Cafe"]);
   });
 });

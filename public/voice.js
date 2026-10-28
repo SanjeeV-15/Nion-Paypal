@@ -35,7 +35,13 @@ export function createListener({ onInterim, onFinal, onEnd, onError }) {
     });
     endpointer = mine;
     r.onresult = (event) => {
-      mine.update(Array.from(event.results, (res) => ({ transcript: res[0].transcript })));
+      try {
+        mine.update(Array.from(event.results, (res) => ({ transcript: res[0].transcript })));
+      } catch (err) {
+        // A listener that hears you but never answers is worse than one that says it broke.
+        console.error("speech handling failed", err);
+        onError("internal");
+      }
     };
     r.onerror = (event) => {
       // "no-speech" and "aborted" are normal; the caller restarts on end.

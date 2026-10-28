@@ -56,6 +56,13 @@ export function rankVoices(voices) {
     .map((x) => x.v);
 }
 
+// Browsers refuse setTimeout when it is called as a method of another object
+// ("Illegal invocation"), so the defaults are wrapped rather than borrowed.
+const browserTimers = {
+  set: /** @type {typeof setTimeout} */ ((fn, ms) => setTimeout(fn, ms)),
+  clear: /** @type {typeof clearTimeout} */ ((id) => clearTimeout(id)),
+};
+
 /**
  * @typedef {object} EndpointerOptions
  * @property {number} silenceMs how long a pause counts as "finished"
@@ -70,7 +77,7 @@ export function rankVoices(voices) {
  * Sunrise Cafe" arrives as one request instead of two.
  */
 /** @param {EndpointerOptions} options */
-export function createEndpointer({ silenceMs, onUtterance, onChange, timers = { set: setTimeout, clear: clearTimeout } }) {
+export function createEndpointer({ silenceMs, onUtterance, onChange, timers = browserTimers }) {
   /** @type {ReturnType<typeof setTimeout> | null} */
   let timer = null;
   let text = "";
