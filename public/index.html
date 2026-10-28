@@ -3,18 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>Nion Pay</title>
-    <meta name="description" content="A voice agent that pays with PayPal inside limits you set." />
+    <meta name="description" content="A voice assistant that pays with PayPal, inside limits the AI can't change." />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b6e5b'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+
     <header class="top">
-      <h1>Nion Pay</h1>
-      <span class="badge" id="mode-badge" hidden></span>
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <div>
+          <h1>Nion Pay</h1>
+          <p class="tagline">Talk to pay, inside limits you set</p>
+        </div>
+      </div>
+      <div class="top-right">
+        <span class="pill" id="paypal-pill" hidden></span>
+        <span class="badge" id="mode-badge" hidden></span>
+        <button type="button" class="icon-btn" id="theme" aria-label="Switch between dark and light" title="Switch between dark and light">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <p class="banner" id="mode-banner" hidden></p>
@@ -48,7 +65,7 @@
         <div class="composer">
           <div class="voice" id="voice">
             <button type="button" class="orb" id="orb" data-state="idle" aria-pressed="false">
-              <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
                 <path
                   d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 0 0-7 0v5A3.5 3.5 0 0 0 12 15Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.92V19H9.5a1 1 0 1 0 0 2h5a1 1 0 1 0 0-2H13v-1.58A6 6 0 0 0 18 11.5Z"
                   fill="currentColor"
@@ -61,11 +78,12 @@
 
           <form class="type" id="form" autocomplete="off">
             <label class="visually-hidden" for="text">Type a message</label>
-            <input id="text" type="text" maxlength="500" placeholder="Or type here, e.g. Pay $12 to Sunrise Cafe" />
+            <input id="text" type="text" maxlength="500" placeholder="Or type a request" />
             <button type="submit" class="btn primary" id="send">Send</button>
           </form>
 
           <p class="hint" id="hint"></p>
+
           <div class="voice-options">
             <label class="toggle">
               <input type="checkbox" id="speak-replies" checked />
@@ -100,7 +118,7 @@
           </details>
         </section>
 
-        <section class="card">
+        <section class="card hero">
           <h2>Today</h2>
           <p class="big" id="spent">&nbsp;</p>
           <div class="meter" role="progressbar" aria-label="Spent today" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter">
@@ -109,9 +127,22 @@
           <p class="muted" id="remaining"></p>
         </section>
 
-        <section class="card" id="bills-card">
-          <h2>Bills</h2>
-          <ol class="bills" id="bills"></ol>
+        <section class="card" id="money-card">
+          <div class="tabs" role="tablist" aria-label="Bills and activity">
+            <button type="button" role="tab" id="tab-bills" aria-controls="panel-bills" aria-selected="true">
+              Bills <span class="count" id="bills-count"></span>
+            </button>
+            <button type="button" role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false" tabindex="-1">
+              Activity <span class="count" id="activity-count"></span>
+            </button>
+          </div>
+          <div role="tabpanel" id="panel-bills" aria-labelledby="tab-bills">
+            <ol class="bills" id="bills"></ol>
+          </div>
+          <div role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" hidden>
+            <ol class="activity" id="activity"></ol>
+            <p class="muted" id="activity-empty">Nothing yet.</p>
+          </div>
         </section>
 
         <section class="card" id="limits-card">
@@ -137,24 +168,14 @@
             </div>
             <p class="muted">Only you can change these. The AI cannot.</p>
           </form>
-        </section>
-
-        <section class="card">
-          <h2>Approved merchants</h2>
+          <h3>Approved merchants</h3>
           <ul class="merchants" id="merchants"></ul>
         </section>
 
-        <section class="card">
-          <h2>Activity</h2>
-          <ol class="activity" id="activity"></ol>
-          <p class="muted" id="activity-empty">Nothing yet.</p>
-        </section>
-
-        <section class="card">
-          <h2>Demo</h2>
-          <p class="muted reset-note">Clears payments, bills, limits and the chat. Your PayPal connection stays. Anything already paid in the PayPal sandbox stays there.</p>
+        <footer class="foot">
+          <p class="muted reset-note">Start over clears payments, bills, limits and the chat. Your PayPal connection stays, and anything already paid in the PayPal sandbox stays there.</p>
           <button type="button" class="btn small" id="reset">Start over</button>
-        </section>
+        </footer>
       </aside>
     </main>
 

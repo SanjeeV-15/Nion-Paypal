@@ -35,6 +35,14 @@ const els = {
   paypalConnect: $("paypal-connect"),
   paypalDisconnect: $("paypal-disconnect"),
   paypalDemo: $("paypal-demo"),
+  paypalPill: $("paypal-pill"),
+  theme: $("theme"),
+  tabBills: $("tab-bills"),
+  tabActivity: $("tab-activity"),
+  panelBills: $("panel-bills"),
+  panelActivity: $("panel-activity"),
+  billsCount: $("bills-count"),
+  activityCount: $("activity-count"),
   noticeAction2: $("notice-action-2"),
   whereDemo: $("where-demo"),
   spent: $("spent"),
@@ -278,7 +286,9 @@ function renderWallet(wallet) {
     ...wallet.merchants.map((x) => {
       const small = document.createElement("small");
       small.textContent = x.blurb;
-      return li(span(x.name), small);
+      const chip = li(span(x.name), small);
+      chip.title = x.blurb;
+      return chip;
     }),
   );
 
@@ -288,6 +298,7 @@ function renderWallet(wallet) {
     unconfirmed: "Unconfirmed, check PayPal",
     failed: "Failed, not charged",
   };
+  const arrived = state.seen.ready && wallet.activity.some((a) => !state.seen.activity.has(a.id));
   els.activity.replaceChildren(
     ...wallet.activity.map((a) => {
       const time = new Date(a.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -308,6 +319,9 @@ function renderWallet(wallet) {
     }),
   );
   state.seen.activity = new Set(wallet.activity.map((a) => a.id));
+  els.activityCount.textContent = wallet.activity.length ? String(wallet.activity.length) : "";
+  // A payment landed while the Bills tab was showing: nudge the Activity tab.
+  if (arrived && els.panelActivity.hidden) els.tabActivity.classList.add("pulse");
   els.activityEmpty.hidden = wallet.activity.length > 0;
 
   renderBills(wallet);
@@ -362,6 +376,8 @@ function renderBills(wallet) {
     }),
   );
   state.seen.bills = new Map(wallet.bills.map((b) => [b.id, b.status]));
+  const toPay = wallet.bills.filter((b) => b.status !== "paid").length;
+  els.billsCount.textContent = toPay ? String(toPay) : "";
 }
 
 function payBillButton(bill) {
@@ -371,10 +387,17 @@ function payBillButton(bill) {
 
 function renderPayPal(paypal) {
   els.paypalCard.hidden = !paypal;
+  els.paypalPill.hidden = !paypal;
   if (!paypal) {
     updateNotice();
     return;
   }
+  els.paypalPill.dataset.state = paypal.connected ? "on" : "off";
+  els.paypalPill.textContent = paypal.connected
+    ? paypal.shared
+      ? "PayPal connected · demo wallet"
+      : "PayPal connected"
+    : "PayPal not connected";
   if (paypal.connected) {
     els.paypalStatus.textContent = paypal.shared
       ? `Using the ${paypal.email}. No sign-in needed; payments are still real PayPal sandbox calls.`
@@ -704,6 +727,7 @@ els.reset.addEventListener("click", async () => {
     els.log.replaceChildren();
     showWelcome();
     closeLimits();
+    showTab("bills");
     renderWallet(wallet);
     setFlash("Started over. Your PayPal connection is still there.", "info");
   } catch (err) {
@@ -777,6 +801,50 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (state.phase === "speaking") cancelSpeech();
   else if (state.conversation) endConversation();
+});
+
+// ---- tabs and theme ---------------------------------------------------------
+
+function showTab(which) {
+  const bills = which === "bills";
+  els.tabBills.setAttribute("aria-selected", String(bills));
+  els.tabActivity.setAttribute("aria-selected", String(!bills));
+  els.tabBills.tabIndex = bills ? 0 : -1;
+  els.tabActivity.tabIndex = bills ? -1 : 0;
+  els.panelBills.hidden = !bills;
+  els.panelActivity.hidden = bills;
+  if (!bills) els.tabActivity.classList.remove("pulse");
+}
+
+els.tabBills.addEventListener("click", () => showTab("bills"));
+els.tabActivity.addEventListener("click", () => showTab("activity"));
+for (const tab of [els.tabBills, els.tabActivity]) {
+  tab.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const next = tab === els.tabBills ? "activity" : "bills";
+    showTab(next);
+    (next === "bills" ? els.tabBills : els.tabActivity).focus();
+  });
+}
+
+const rootEl = document.documentElement;
+try {
+  const saved = localStorage.getItem("nion.theme");
+  if (saved === "light" || saved === "dark") rootEl.dataset.theme = saved;
+} catch {
+  /* storage can be blocked; the page follows the system theme */
+}
+
+els.theme.addEventListener("click", () => {
+  const systemLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+  const now = rootEl.dataset.theme ?? (systemLight ? "light" : "dark");
+  const next = now === "dark" ? "light" : "dark";
+  rootEl.dataset.theme = next;
+  try {
+    localStorage.setItem("nion.theme", next);
+  } catch {
+    /* ignore */
+  }
 });
 
 // ---- start ---------------------------------------------------------------
