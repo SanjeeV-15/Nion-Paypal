@@ -110,6 +110,40 @@ describe("a plain answer", () => {
   });
 });
 
+describe("usage", () => {
+  it("reports tokens after every model call, tool rounds included", async () => {
+    const seen: { inputTokens: number; outputTokens: number }[] = [];
+    const model = fakeModel([
+      { ...call(use("t1", "get_wallet")), usage: { input_tokens: 100, output_tokens: 10 } } as Reply,
+      { ...say("Fine."), usage: { input_tokens: 150, output_tokens: 5 } } as Reply,
+    ]);
+    const chat = createClaudeChat({
+      client: model.client,
+      model: "claude-sonnet-5-5",
+      limiter: new ChatLimiter({ perVisitorPerHour: 10, perDay: 10 }),
+      onUsage: (u) => seen.push(u),
+    });
+    await chat(makeSession(), "how much is left", demoExecutor);
+    expect(seen).toEqual([
+      { inputTokens: 100, outputTokens: 10 },
+      { inputTokens: 150, outputTokens: 5 },
+    ]);
+  });
+
+  it("copes with a reply that has no usage numbers", async () => {
+    const seen: unknown[] = [];
+    const model = fakeModel([say("Hi.")]);
+    const chat = createClaudeChat({
+      client: model.client,
+      model: "claude-sonnet-5-5",
+      limiter: new ChatLimiter({ perVisitorPerHour: 10, perDay: 10 }),
+      onUsage: (u) => seen.push(u),
+    });
+    await chat(makeSession(), "hi", demoExecutor);
+    expect(seen).toEqual([{ inputTokens: 0, outputTokens: 0 }]);
+  });
+});
+
 describe("paying", () => {
   it("runs the pay tool and hands the result back to the model", async () => {
     const t = setup([

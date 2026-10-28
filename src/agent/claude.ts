@@ -22,6 +22,8 @@ export interface ClaudeChatOptions {
   /** Used when the model is unavailable or a usage cap is reached. */
   fallback?: ChatHandler;
   maxToolRounds?: number;
+  /** Called after every model call, so spending can be watched. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
 }
 
 const MAX_HISTORY = 20;
@@ -100,6 +102,11 @@ export function createClaudeChat(options: ClaudeChatOptions): ChatHandler {
         // If a safety classifier declines, let the API retry on a fallback model.
         betas: [FALLBACK_BETA],
         fallbacks: "default",
+      });
+
+      options.onUsage?.({
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
       });
 
       if (response.stop_reason === "refusal") return "Sorry, I can't help with that.";
