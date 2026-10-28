@@ -1,4 +1,4 @@
-import { MERCHANTS } from "./merchants.js";
+import { ALL_PAYEES } from "./merchants.js";
 import type { Policy } from "./limits/policy.js";
 
 export function defaultPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
@@ -8,7 +8,7 @@ export function defaultPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
     autoApproveUpToCents: 2_500,
     perPurchaseCapCents: 10_000,
     dailyCapCents: 15_000,
-    approvedMerchants: MERCHANTS.map((m) => m.id),
+    approvedMerchants: ALL_PAYEES.map((m) => m.id),
     duplicateWindowMs: 60_000,
     confirmationTtlMs: 120_000,
   };

@@ -1,6 +1,7 @@
 import type { EntryStatus } from "./limits/gate.js";
 import type { ConfirmReason } from "./limits/policy.js";
-import { MERCHANTS } from "./merchants.js";
+import { daysUntil, type BillStatus } from "./bills.js";
+import { MERCHANTS, payeeName } from "./merchants.js";
 import type { Session } from "./sessions.js";
 
 export interface WalletSnapshot {
@@ -9,6 +10,15 @@ export interface WalletSnapshot {
   spentCents: number;
   remainingCents: number;
   merchants: { id: string; name: string; blurb: string }[];
+  bills: {
+    id: string;
+    name: string;
+    payee: string;
+    amountCents: number;
+    dueDate: string;
+    daysUntilDue: number;
+    status: BillStatus;
+  }[];
   activity: {
     id: string;
     merchant: string;
@@ -25,12 +35,13 @@ export interface WalletSnapshot {
     merchant: string;
     amountCents: number;
     reasons: ConfirmReason[];
+    /** Name of the bill this payment is for, if it is one. */
+    billName?: string;
   } | null;
 }
 
 export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): WalletSnapshot {
   const { gate } = session;
-  const names = new Map(MERCHANTS.map((m) => [m.id, m.name]));
   if (session.pending && Date.now() >= session.pending.expiresAt) session.pending = null;
 
   return {
@@ -39,11 +50,20 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
     spentCents: gate.spentToday(),
     remainingCents: gate.remainingToday(),
     merchants: MERCHANTS.map((m) => ({ ...m })),
+    bills: session.bills.map((b) => ({
+      id: b.id,
+      name: b.name,
+      payee: payeeName(b.payeeId),
+      amountCents: b.amountCents,
+      dueDate: b.dueDate,
+      daysUntilDue: daysUntil(b.dueDate, Date.now()),
+      status: b.status,
+    })),
     activity: gate
       .history()
       .map((e) => ({
         id: e.id,
-        merchant: names.get(e.request.merchantId) ?? e.request.merchantId,
+        merchant: payeeName(e.request.merchantId),
         amountCents: e.request.amountCents,
         status: e.status,
         at: e.at,
@@ -61,9 +81,12 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
       ? {
           proposalId: session.pending.proposalId,
           expiresAt: session.pending.expiresAt,
-          merchant: names.get(session.pending.merchantId) ?? session.pending.merchantId,
+          merchant: payeeName(session.pending.merchantId),
           amountCents: session.pending.amountCents,
           reasons: session.pending.reasons,
+          ...(session.pending.billId
+            ? { billName: session.bills.find((b) => b.id === session.pending?.billId)?.name }
+            : {}),
         }
       : null,
   };

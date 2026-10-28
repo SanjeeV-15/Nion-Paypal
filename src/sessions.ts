@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { SpendingGate } from "./limits/gate.js";
+import type { Bill } from "./bills.js";
+import { sampleBills } from "./bills.js";
 import type { ConfirmReason } from "./limits/policy.js";
 
 export interface PendingQuestion {
@@ -8,6 +10,8 @@ export interface PendingQuestion {
   merchantId: string;
   amountCents: number;
   reasons: ConfirmReason[];
+  /** Set when the payment is for one of the visitor's bills. */
+  billId?: string;
 }
 
 export interface ConnectedWallet {
@@ -24,6 +28,8 @@ export interface Session {
   paypal: ConnectedWallet | null;
   /** The setup token this visitor is in the middle of approving. */
   paypalSetupId: string | null;
+  /** The visitor's bills, with sample due dates. */
+  bills: Bill[];
   /** Plain-text turns the agent remembers, oldest first. */
   history: { role: "user" | "assistant"; content: string }[];
   lastSeen: number;
@@ -79,6 +85,7 @@ export class SessionStore {
       pending: null,
       paypal: null,
       paypalSetupId: null,
+      bills: sampleBills(now),
       history: [],
       lastSeen: now,
     };

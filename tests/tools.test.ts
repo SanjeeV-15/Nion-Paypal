@@ -12,7 +12,7 @@ const run = (session: Session, name: string, input: unknown, executor: Executor 
 describe("tool list", () => {
   it("has no way for the model to confirm a payment", () => {
     const names = TOOLS.map((t) => t.name).sort();
-    expect(names).toEqual(["cancel_pending_payment", "get_wallet", "list_merchants", "pay"]);
+    expect(names).toEqual(["cancel_pending_payment", "get_wallet", "list_bills", "list_merchants", "pay", "pay_bill"]);
   });
 
   it("limits pay to the approved merchants", () => {
@@ -178,5 +178,63 @@ describe("unknown tools and pending text", () => {
     expect(describePending(session)).toBeNull();
     await run(session, "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 });
     expect(describePending(session)).toBe("$48.00 to Blue Door Taxi");
+  });
+});
+
+describe("bills", () => {
+  it("lists every bill with its amount, payee, due date and status", async () => {
+    const out = json(await run(makeSession(), "list_bills", {}));
+    expect(out.map((b: { id: string }) => b.id)).toEqual(["phone", "credit-card", "electric", "rent"]);
+    expect(out[0]).toMatchObject({ name: "Phone plan", pay_to: "Skyline Mobile", amount_usd: 42.5, status: "due" });
+    expect(out[0].due_in_days).toBe(3);
+  });
+
+  it("keeps the bill payees out of the merchant list", async () => {
+    const out = json(await run(makeSession(), "list_merchants", {}));
+    expect(out.map((m: { id: string }) => m.id)).not.toContain("skyline-mobile");
+    expect(out).toHaveLength(MERCHANTS.length);
+  });
+
+  it("pays a bill by id, using the bill's own amount, and holds it for the user's yes", async () => {
+    const session = makeSession();
+    const out = json(await run(session, "pay_bill", { bill_id: "phone" }));
+    expect(out.status).toBe("asked");
+    expect(out.message).toMatch(/Pay \$42\.50 to Skyline Mobile\?/);
+    expect(out.note).toMatch(/Only the user can confirm/);
+    expect(session.pending).toMatchObject({ amountCents: 4250, billId: "phone" });
+  });
+
+  it("refuses the rent through the gate and says why", async () => {
+    const out = json(await run(makeSession(), "pay_bill", { bill_id: "rent" }));
+    expect(out.status).toBe("denied");
+    expect(out.message).toMatch(/limit for one payment/);
+  });
+
+  it("reports an unknown bill without paying anything", async () => {
+    const session = makeSession();
+    expect(json(await run(session, "pay_bill", { bill_id: "mortgage" })).status).toBe("unavailable");
+    expect((await run(session, "pay_bill", {})).isError).toBe(true);
+    expect((await run(session, "pay_bill", { bill_id: 7 })).isError).toBe(true);
+    expect(session.gate.history()).toHaveLength(0);
+  });
+
+  it("has no amount for the model to change", () => {
+    const tool = TOOLS.find((t) => t.name === "pay_bill");
+    const props = (tool?.input_schema as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(props)).toEqual(["bill_id"]);
+  });
+
+  it("will not let pay be used to pay a bill payee with a made-up amount", async () => {
+    const session = makeSession();
+    const out = await run(session, "pay", { merchant_id: "maple-apartments", amount_usd: 5 });
+    expect(out.isError).toBe(true);
+    expect(out.content).toMatch(/Use pay_bill/);
+    expect(session.gate.history()).toHaveLength(0);
+  });
+
+  it("offers pay only the merchants, not the bill payees", () => {
+    const pay = TOOLS.find((t) => t.name === "pay");
+    const ids = (pay?.input_schema as { properties: { merchant_id: { enum: string[] } } }).properties.merchant_id.enum;
+    expect(ids).not.toContain("maple-apartments");
   });
 });

@@ -13,6 +13,7 @@ function session(connected: boolean): Session {
     pending: null,
     paypal: connected ? { vaultId: "VAULT-1" } : null,
     paypalSetupId: null,
+    bills: [],
     history: [],
     lastSeen: 0,
   };

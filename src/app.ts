@@ -6,7 +6,8 @@ import { demoChat } from "./chat/demo.js";
 import { defaultPolicy } from "./config.js";
 import { WindowLimiter } from "./limiter.js";
 import { SpendingGate } from "./limits/gate.js";
-import { MERCHANTS } from "./merchants.js";
+import { payBill } from "./bills.js";
+import { payeeName } from "./merchants.js";
 import { PayPalError, type PayPalClient } from "./paypal/client.js";
 import { PayPalExecutor } from "./paypal/executor.js";
 import { answerPending, demoExecutor, type Executor } from "./payments.js";
@@ -44,14 +45,12 @@ const CSP = [
 ].join("; ");
 
 export function createApp(options: AppOptions = {}) {
-  const names = new Map(MERCHANTS.map((m) => [m.id, m.name]));
   const store =
     options.store ??
     new SessionStore({
       ttlMs: 6 * 60 * 60 * 1000,
       max: 1000,
-      createGate: () =>
-        new SpendingGate(defaultPolicy(), { merchantName: (id) => names.get(id) ?? id }),
+      createGate: () => new SpendingGate(defaultPolicy(), { merchantName: payeeName }),
     });
   const chat = options.chat ?? demoChat;
   const paypal = options.paypal;
@@ -125,6 +124,21 @@ export function createApp(options: AppOptions = {}) {
       }
       const session = res.locals.session as Session;
       const reply = await chat(session, message, executor);
+      res.json({ reply, wallet: snapshot(session) });
+    }),
+  );
+
+  // The Pay button on a bill. It skips the AI: the bill itself says what is owed and to whom.
+  app.post(
+    "/api/bills/pay",
+    handler(async (req, res) => {
+      const session = res.locals.session as Session;
+      const billId = typeof req.body?.billId === "string" ? req.body.billId : "";
+      if (!session.bills.some((b) => b.id === billId)) {
+        res.status(404).json({ error: "There is no bill like that.", wallet: snapshot(session) });
+        return;
+      }
+      const { message: reply } = await payBill(session, billId, executor);
       res.json({ reply, wallet: snapshot(session) });
     }),
   );

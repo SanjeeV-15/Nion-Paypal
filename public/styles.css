@@ -40,6 +40,11 @@
   box-sizing: border-box;
 }
 
+/* Rules like display: flex would otherwise win over the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -247,6 +252,64 @@ h2 {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.bills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  font-size: 0.92rem;
+}
+
+.bills li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bills li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.bill-name {
+  font-weight: 600;
+}
+
+.bills .amount {
+  font-weight: 600;
+  text-align: right;
+}
+
+.bill-meta {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.bill-status {
+  justify-self: end;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.bills .paid .bill-name,
+.bills .paid .amount {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.bills .unconfirmed .bill-status,
+.bills .overdue .bill-meta {
+  color: var(--warn-ink);
+}
+
+.bills[inert] {
+  opacity: 0.6;
 }
 
 .activity .unconfirmed .amount {

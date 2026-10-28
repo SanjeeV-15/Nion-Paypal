@@ -3,7 +3,8 @@ import type { Express } from "express";
 import { createApp, type AppOptions } from "../src/app.js";
 import { defaultPolicy } from "../src/config.js";
 import { SpendingGate } from "../src/limits/gate.js";
-import { MERCHANTS } from "../src/merchants.js";
+import { payeeName } from "../src/merchants.js";
+import { sampleBills } from "../src/bills.js";
 import type { Session } from "../src/sessions.js";
 
 export interface TestServer {
@@ -74,16 +75,15 @@ function parseJson(text: string) {
   }
 }
 
-const merchantNames = new Map(MERCHANTS.map((m) => [m.id, m.name]));
-
 /** A fresh visitor with a default wallet, for tests that skip HTTP. */
 export function makeSession(): Session {
   return {
     id: "s1",
-    gate: new SpendingGate(defaultPolicy({}), { merchantName: (id) => merchantNames.get(id) ?? id }),
+    gate: new SpendingGate(defaultPolicy({}), { merchantName: payeeName }),
     pending: null,
     paypal: null,
     paypalSetupId: null,
+    bills: sampleBills(Date.now()),
     history: [],
     lastSeen: 0,
   };

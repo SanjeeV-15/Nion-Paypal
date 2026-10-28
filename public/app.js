@@ -40,6 +40,7 @@ const els = {
   remaining: $("remaining"),
   rules: $("rules"),
   merchants: $("merchants"),
+  bills: $("bills"),
   activity: $("activity"),
   activityEmpty: $("activity-empty"),
   approval: $("approval"),
@@ -74,7 +75,12 @@ const ORB_LABEL = {
   speaking: "Interrupt",
 };
 
-const EXAMPLES = ["Pay $12 to Sunrise Cafe", "Pay $48 to Blue Door Taxi", "How much do I have left?"];
+const EXAMPLES = [
+  "Pay $12 to Sunrise Cafe",
+  "Pay $48 to Blue Door Taxi",
+  "What bills are due?",
+  "Pay my phone bill",
+];
 
 // ---- storage ---------------------------------------------------------------
 
@@ -139,6 +145,7 @@ function setPhase(phase) {
   els.send.disabled = phase === "thinking";
   els.approve.disabled = phase === "thinking";
   els.decline.disabled = phase === "thinking";
+  els.bills.toggleAttribute("inert", phase === "thinking");
 }
 
 function setHint(text) {
@@ -262,8 +269,56 @@ function renderWallet(wallet) {
   );
   els.activityEmpty.hidden = wallet.activity.length > 0;
 
+  renderBills(wallet);
   renderPayPal(wallet.paypal);
   renderApproval(wallet.pending);
+}
+
+function dueText(bill) {
+  const date = new Date(`${bill.dueDate}T00:00:00Z`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const days = bill.daysUntilDue;
+  if (days < 0) return `${date}, ${-days} day${days === -1 ? "" : "s"} overdue`;
+  if (days === 0) return `${date}, due today`;
+  if (days === 1) return `${date}, tomorrow`;
+  return `${date}, in ${days} days`;
+}
+
+function renderBills(wallet) {
+  const m = (cents) => money(cents, wallet.limits.currency);
+  els.bills.replaceChildren(
+    ...wallet.bills.map((bill) => {
+      const status = bill.status === "due" && bill.daysUntilDue < 0 ? "overdue" : bill.status;
+      const item = li(
+        span(bill.name, "bill-name"),
+        span(m(bill.amountCents), "amount"),
+        span(`${bill.payee} · ${bill.status === "paid" ? "paid" : dueText(bill)}`, "bill-meta"),
+      );
+      item.className = status;
+      if (bill.status === "due") {
+        const pay = document.createElement("button");
+        pay.type = "button";
+        pay.className = "btn small bill-pay";
+        pay.textContent = "Pay";
+        pay.setAttribute("aria-label", `Pay ${bill.name}, ${m(bill.amountCents)}`);
+        pay.addEventListener("click", () => payBillButton(bill));
+        item.append(pay);
+      } else if (bill.status === "unconfirmed") {
+        item.append(span("Unconfirmed, check PayPal", "bill-status"));
+      } else {
+        item.append(span("Paid", "bill-status"));
+      }
+      return item;
+    }),
+  );
+}
+
+function payBillButton(bill) {
+  if (state.phase === "thinking") return;
+  runTurn(() => api("/api/bills/pay", { billId: bill.id }), `Pay my ${bill.name.toLowerCase()} bill`);
 }
 
 function renderPayPal(paypal) {
@@ -316,7 +371,8 @@ function renderApproval(pending) {
     return;
   }
   const { limits } = state.wallet;
-  els.approvalAmount.textContent = `${money(pending.amountCents, limits.currency)} to ${pending.merchant}`;
+  const what = `${money(pending.amountCents, limits.currency)} to ${pending.merchant}`;
+  els.approvalAmount.textContent = pending.billName ? `${pending.billName}: ${what}` : what;
   els.approvalReasons.replaceChildren(
     ...pending.reasons.map((reason) =>
       li(

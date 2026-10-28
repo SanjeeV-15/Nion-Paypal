@@ -28,7 +28,16 @@ export const demoExecutor: Executor = {
   receipt: (summary) => `Cleared to pay ${summary}. This is a demo, so no money actually moved.`,
 };
 
-export type SettledKind = "paid" | "asked" | "denied" | "failed" | "unconfirmed" | "cancelled" | "idle";
+export type SettledKind =
+  | "paid"
+  | "asked"
+  | "denied"
+  | "failed"
+  | "unconfirmed"
+  | "cancelled"
+  | "idle"
+  | "not_ready"
+  | "unavailable";
 
 /** What happened, in words to speak and in a form the agent can reason about. */
 export interface Settled {
@@ -37,7 +46,12 @@ export interface Settled {
 }
 
 /** Turns what the gate decided into a settled payment, a stored question, or a refusal. */
-export async function settle(session: Session, out: Outcome, executor: Executor): Promise<Settled> {
+export async function settle(
+  session: Session,
+  out: Outcome,
+  executor: Executor,
+  billId?: string,
+): Promise<Settled> {
   const { gate } = session;
 
   if (out.status === "denied") {
@@ -52,6 +66,7 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
       merchantId: out.request.merchantId,
       amountCents: out.request.amountCents,
       reasons: out.reasons,
+      ...(billId ? { billId } : {}),
     };
     return { kind: "asked", message: `${out.message} Say yes to confirm, or no to cancel.` };
   }
@@ -68,6 +83,7 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
     if (err instanceof PaymentUncertainError) {
       // Never hand the money back when we do not know where it went.
       gate.flagUnconfirmed(out.reservationId);
+      markBill(session, billId, "unconfirmed");
       console.error("payment unconfirmed:", err.message);
       return {
         kind: "unconfirmed",
@@ -81,7 +97,13 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
     return { kind: "failed", message: "The payment did not go through, and nothing was charged." };
   }
   gate.complete(out.reservationId, ref);
+  markBill(session, billId, "paid");
   return { kind: "paid", message: executor.receipt(summary) };
+}
+
+function markBill(session: Session, billId: string | undefined, status: "paid" | "unconfirmed"): void {
+  const bill = billId ? session.bills.find((b) => b.id === billId) : undefined;
+  if (bill) bill.status = status;
 }
 
 /**
@@ -102,5 +124,5 @@ export async function answerPending(
     session.pending = null;
     return { kind: "cancelled", message: "Okay, I cancelled that. Nothing was paid." };
   }
-  return settle(session, gate.confirm(pending.proposalId), executor);
+  return settle(session, gate.confirm(pending.proposalId), executor, pending.billId);
 }

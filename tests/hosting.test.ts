@@ -71,6 +71,12 @@ describe("the page itself follows the content security policy", () => {
   });
 });
 
+describe("the page's styles", () => {
+  it("let the hidden attribute win over any display rule", () => {
+    expect(readFileSync("public/styles.css", "utf8")).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
+  });
+});
+
 describe("new visitors", () => {
   it("are limited per network, so nobody can flood the session store", async () => {
     const { base } = await startApp({ newVisitorsPerMinute: 3 });

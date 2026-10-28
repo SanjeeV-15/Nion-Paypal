@@ -1,8 +1,9 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { BILL_IDS, describeBill, payBill } from "../bills.js";
 import { formatMoney } from "../limits/policy.js";
-import { MERCHANTS } from "../merchants.js";
-import { settle, type Executor } from "../payments.js";
+import { BILLERS, MERCHANTS } from "../merchants.js";
+import { settle, type Executor, type Settled } from "../payments.js";
 import type { Session } from "../sessions.js";
 
 type Tool = Anthropic.Beta.BetaTool;
@@ -50,6 +51,29 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: "list_bills",
+    description:
+      "List the user's bills: what each is, who it is paid to, the amount, the due date, how many days away " +
+      "that is, and whether it is due, paid or overdue.",
+    input_schema: noInput,
+  },
+  {
+    name: "pay_bill",
+    description:
+      "Pay one of the user's bills. The amount and who it goes to come from the bill itself, so you do not " +
+      "choose them. Use this, not pay, whenever the user means one of their bills. Small payments go through " +
+      "at once; bigger ones are held until the user says yes themselves. Report the status truthfully.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        bill_id: { type: "string", enum: BILL_IDS, description: "The id of the bill to pay." },
+      },
+      required: ["bill_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "cancel_pending_payment",
     description: "Cancel the payment that is waiting for the user's yes, when they say they no longer want it.",
     input_schema: noInput,
@@ -73,6 +97,7 @@ export interface ToolResult {
 }
 
 const payInput = z.object({ merchant_id: z.string(), amount_usd: z.number() });
+const payBillInput = z.object({ bill_id: z.string() });
 
 export async function runTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
   switch (name) {
@@ -84,8 +109,14 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext): P
     // "make it ten dollars", so the model must get to carry on.
     case "cancel_pending_payment":
       return ok(cancelPending(ctx.session));
+    case "list_bills": {
+      const { currency } = ctx.session.gate.limits();
+      return ok(ctx.session.bills.map((b) => describeBill(b, Date.now(), currency)));
+    }
     case "pay":
       return pay(input, ctx);
+    case "pay_bill":
+      return payOneBill(input, ctx);
     default:
       return fail(`There is no tool called "${name}".`);
   }
@@ -97,6 +128,10 @@ async function pay(input: unknown, { session, executor }: ToolContext): Promise<
 
   const cents = usdToCents(parsed.data.amount_usd);
   if (cents === null) return fail("The amount must be a positive number of dollars with at most two decimal places.");
+  // A bill's amount comes from the bill, so bill payees are never paid with a free-form amount.
+  if (BILLERS.some((b) => b.id === parsed.data.merchant_id)) {
+    return fail("That is a company the user's bills are paid to. Use pay_bill to pay a bill.");
+  }
 
   const blocked = executor.ready(session);
   if (blocked) return ok({ status: "not_ready", message: blocked }, blocked);
@@ -111,8 +146,17 @@ async function pay(input: unknown, { session, executor }: ToolContext): Promise<
     amountCents: cents,
     currency: gate.limits().currency,
   });
-  const settled = await settle(session, out, executor);
+  return outcomeResult(await settle(session, out, executor));
+}
 
+async function payOneBill(input: unknown, { session, executor }: ToolContext): Promise<ToolResult> {
+  const parsed = payBillInput.safeParse(input);
+  if (!parsed.success) return fail("pay_bill needs a bill_id.");
+  return outcomeResult(await payBill(session, parsed.data.bill_id, executor));
+}
+
+/** A payment outcome as the model sees it, with the exact words to speak. */
+function outcomeResult(settled: Settled): ToolResult {
   return ok(
     {
       status: settled.kind,
@@ -121,7 +165,7 @@ async function pay(input: unknown, { session, executor }: ToolContext): Promise<
         ? {
             note:
               "A confirmation card is now on screen. Only the user can confirm it, by saying yes or tapping " +
-              "Confirm. Ask them briefly and wait. Do not call pay again for this payment.",
+              "Confirm. Ask them briefly and wait. Do not call pay or pay_bill again for this payment.",
           }
         : {}),
     },

@@ -344,3 +344,45 @@ describe("paying through PayPal", () => {
     expect(app.calls.charges).toHaveLength(0);
   });
 });
+
+describe("paying a bill through PayPal", () => {
+  it("asks to connect PayPal first and charges nothing", async () => {
+    const { paypal, calls } = fakePayPal();
+    const app = await startApp({ paypal });
+    const out = await app.call("/api/bills/pay", { billId: "phone" });
+    expect(out.json.reply).toMatch(/isn't connected yet/);
+    expect(calls.charges).toHaveLength(0);
+    expect(out.json.wallet.bills.find((b: { id: string }) => b.id === "phone").status).toBe("due");
+  });
+
+  it("charges the bill's own amount to its own payee, once the user confirms", async () => {
+    const app = await connected();
+    const ask = await app.call("/api/bills/pay", { billId: "credit-card" });
+    expect(app.calls.charges).toHaveLength(0);
+    await app.call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    expect(app.calls.charges).toHaveLength(1);
+    expect(app.calls.charges[0]).toMatchObject({
+      amountCents: 6000,
+      currency: "USD",
+      description: "Nion Pay: Summit Card",
+      customId: "summit-card",
+    });
+    const w = await wallet(app);
+    expect(w.bills.find((b) => b.id === "credit-card")?.status).toBe("paid");
+  });
+
+  it("marks a bill unconfirmed, and holds the money, when PayPal's answer is uncertain", async () => {
+    const app = await connected({
+      charge: async () => {
+        throw new PayPalError("Lost the connection to PayPal.", { uncertain: true });
+      },
+    });
+    const ask = await app.call("/api/bills/pay", { billId: "phone" });
+    const done = await app.call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    expect(done.json.reply).toMatch(/couldn't confirm/);
+    expect(done.json.wallet.bills.find((b: { id: string }) => b.id === "phone").status).toBe("unconfirmed");
+    expect(done.json.wallet.spentCents).toBe(4250);
+    const again = await app.call("/api/bills/pay", { billId: "phone" });
+    expect(again.json.reply).toMatch(/won't pay it again/);
+  });
+});

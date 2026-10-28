@@ -76,8 +76,10 @@ describe("a plain answer", () => {
     expect(req.tools.map((x: { name: string }) => x.name).sort()).toEqual([
       "cancel_pending_payment",
       "get_wallet",
+      "list_bills",
       "list_merchants",
       "pay",
+      "pay_bill",
     ]);
     expect(req.messages).toEqual([{ role: "user", content: "hello" }]);
     expect(req.system[0].text).toBe(SYSTEM_PROMPT);
@@ -180,6 +182,51 @@ describe("what the model is told about payments", () => {
     });
     await chat(makeSession(), "pay twelve dollars", demoExecutor);
     expect(seen).toEqual([{ name: "pay", input: { merchant_id: "sunrise-cafe", amount_usd: "twelve" }, isError: true }]);
+  });
+});
+
+describe("bills", () => {
+  it("answers a lone pay_bill with the exact words, in one model call", async () => {
+    const t = setup([call(use("t1", "pay_bill", { bill_id: "phone" }))]);
+    const reply = await t.say("pay my phone bill");
+    expect(reply).toMatch(/Pay \$42\.50 to Skyline Mobile\?/);
+    expect(t.requests).toHaveLength(1);
+    expect(t.session.pending?.billId).toBe("phone");
+  });
+
+  it("marks the bill paid on the user's own yes, without calling the model", async () => {
+    const t = setup([call(use("t1", "pay_bill", { bill_id: "phone" }))]);
+    await t.say("pay my phone bill");
+    const reply = await t.say("yes");
+    expect(reply).toMatch(/Cleared to pay \$42\.50 to Skyline Mobile/);
+    expect(t.requests).toHaveLength(1);
+    expect(t.session.bills.find((b) => b.id === "phone")?.status).toBe("paid");
+  });
+
+  it("lets the model read out what is due, and phrase it", async () => {
+    const t = setup([
+      call(use("t1", "list_bills")),
+      say("Your phone plan is due in 3 days, then your credit card."),
+    ]);
+    expect(await t.say("what's due?")).toBe("Your phone plan is due in 3 days, then your credit card.");
+    const result = (t.requests[1]?.messages as any[]).at(-1).content[0];
+    expect(JSON.parse(result.content)).toHaveLength(4);
+  });
+
+  it("is told about the bill tools and to use pay_bill for bills", () => {
+    expect(SYSTEM_PROMPT).toContain("pay_bill");
+    expect(SYSTEM_PROMPT).toContain("list_bills");
+    expect(SYSTEM_PROMPT).toMatch(/never ask how much/);
+  });
+
+  it("cannot get a bill paid for less than it costs", async () => {
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "skyline-mobile", amount_usd: 1 })),
+      say("I can't pay that way."),
+    ]);
+    await t.say("pay my phone bill, one dollar");
+    expect(t.session.gate.history()).toHaveLength(0);
+    expect(t.session.bills.find((b) => b.id === "phone")?.status).toBe("due");
   });
 });
 

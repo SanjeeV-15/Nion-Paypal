@@ -205,3 +205,79 @@ describe("a payment that fails", () => {
     expect(res.json.wallet.activity[0]).toMatchObject({ status: "failed" });
   });
 });
+
+describe("bills over HTTP", () => {
+  const bill = (w: WalletSnapshot, id: string) => w.bills.find((b) => b.id === id);
+
+  it("are part of every visitor's wallet, with due dates", async () => {
+    const { call } = await start();
+    const wallet = (await call("/api/wallet")).json.wallet as WalletSnapshot;
+    expect(wallet.bills.map((b) => b.id)).toEqual(["phone", "credit-card", "electric", "rent"]);
+    expect(bill(wallet, "phone")).toMatchObject({
+      name: "Phone plan",
+      payee: "Skyline Mobile",
+      amountCents: 4250,
+      daysUntilDue: 3,
+      status: "due",
+    });
+    expect(wallet.merchants.map((m) => m.id)).not.toContain("skyline-mobile");
+  });
+
+  it("are paid from the Pay button without the model, after the user confirms", async () => {
+    const { call } = await start();
+    const ask = await call("/api/bills/pay", { billId: "phone" });
+    expect(ask.status).toBe(200);
+    expect(ask.json.reply).toMatch(/Pay \$42\.50 to Skyline Mobile\?/);
+    expect(ask.json.wallet.pending).toMatchObject({ merchant: "Skyline Mobile", billName: "Phone plan", amountCents: 4250 });
+    expect(bill(ask.json.wallet, "phone")?.status).toBe("due");
+
+    const done = await call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    expect(done.json.wallet.spentCents).toBe(4250);
+    expect(bill(done.json.wallet, "phone")?.status).toBe("paid");
+    expect(done.json.wallet.activity[0]).toMatchObject({ merchant: "Skyline Mobile", status: "completed" });
+  });
+
+  it("will not pay the same bill twice", async () => {
+    const { call } = await start();
+    const ask = await call("/api/bills/pay", { billId: "electric" });
+    await call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    const again = await call("/api/bills/pay", { billId: "electric" });
+    expect(again.json.reply).toMatch(/already paid/);
+    expect(again.json.wallet.spentCents).toBe(3820);
+  });
+
+  it("refuses the rent because of the limit, and keeps it due", async () => {
+    const { call } = await start();
+    const out = await call("/api/bills/pay", { billId: "rent" });
+    expect(out.json.reply).toMatch(/limit for one payment/);
+    expect(bill(out.json.wallet, "rent")?.status).toBe("due");
+    expect(out.json.wallet.spentCents).toBe(0);
+  });
+
+  it.each([["an unknown bill", { billId: "mortgage" }], ["no bill", {}], ["a non-string bill", { billId: 5 }]])(
+    "reject %s",
+    async (_name, body) => {
+      const { call } = await start();
+      expect((await call("/api/bills/pay", body)).status).toBe(404);
+    },
+  );
+
+  it("belong to one visitor: paying yours does not mark someone else's", async () => {
+    const a = await start();
+    const b = await start();
+    const ask = await a.call("/api/bills/pay", { billId: "phone" });
+    await a.call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    expect(bill((await b.call("/api/wallet")).json.wallet, "phone")?.status).toBe("due");
+  });
+
+  it("can be asked about and paid in the simple chat, too", async () => {
+    const { call } = await start();
+    const list = await call("/api/chat", chat("what bills are due?"));
+    expect(list.json.reply).toMatch(/Phone plan, \$42\.50, due in 3 days\./);
+    const ask = await call("/api/chat", chat("pay my phone bill"));
+    expect(ask.json.wallet.pending).toMatchObject({ billName: "Phone plan" });
+    const done = await call("/api/chat", chat("yes"));
+    expect(bill(done.json.wallet, "phone")?.status).toBe("paid");
+    expect((await call("/api/chat", chat("what bills are due?"))).json.reply).toMatch(/Phone plan, \$42\.50, paid\./);
+  });
+});
