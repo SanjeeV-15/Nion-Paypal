@@ -1,6 +1,10 @@
 import type { AddressInfo } from "node:net";
 import type { Express } from "express";
 import { createApp, type AppOptions } from "../src/app.js";
+import { defaultPolicy } from "../src/config.js";
+import { SpendingGate } from "../src/limits/gate.js";
+import { MERCHANTS } from "../src/merchants.js";
+import type { Session } from "../src/sessions.js";
 
 export interface TestServer {
   base: string;
@@ -68,4 +72,19 @@ function parseJson(text: string) {
   } catch {
     return null;
   }
+}
+
+const merchantNames = new Map(MERCHANTS.map((m) => [m.id, m.name]));
+
+/** A fresh visitor with a default wallet, for tests that skip HTTP. */
+export function makeSession(): Session {
+  return {
+    id: "s1",
+    gate: new SpendingGate(defaultPolicy({}), { merchantName: (id) => merchantNames.get(id) ?? id }),
+    pending: null,
+    paypal: null,
+    paypalSetupId: null,
+    history: [],
+    lastSeen: 0,
+  };
 }

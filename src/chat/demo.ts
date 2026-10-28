@@ -19,7 +19,7 @@ export async function demoChat(
 
   if (session.pending) {
     const answer = classifyAnswer(message);
-    if (answer !== "other") return answerPending(session, answer, executor);
+    if (answer !== "other") return (await answerPending(session, answer, executor)).message;
   }
 
   const pay = /\bpay\b.*?\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks)?\b/i.exec(message);
@@ -38,7 +38,7 @@ export async function demoChat(
       amountCents: toCents(pay[1] ?? ""),
       currency,
     });
-    return settle(session, out, executor);
+    return (await settle(session, out, executor)).message;
   }
 
   if (/\b(left|remaining|spent|budget|limit)\b/i.test(message)) {

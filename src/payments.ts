@@ -28,13 +28,21 @@ export const demoExecutor: Executor = {
   receipt: (summary) => `Cleared to pay ${summary}. This is a demo, so no money actually moved.`,
 };
 
+export type SettledKind = "paid" | "asked" | "denied" | "failed" | "unconfirmed" | "cancelled" | "idle";
+
+/** What happened, in words to speak and in a form the agent can reason about. */
+export interface Settled {
+  kind: SettledKind;
+  message: string;
+}
+
 /** Turns what the gate decided into a settled payment, a stored question, or a refusal. */
-export async function settle(session: Session, out: Outcome, executor: Executor): Promise<string> {
+export async function settle(session: Session, out: Outcome, executor: Executor): Promise<Settled> {
   const { gate } = session;
 
   if (out.status === "denied") {
     session.pending = null;
-    return out.message;
+    return { kind: "denied", message: out.message };
   }
 
   if (out.status === "needs_confirmation") {
@@ -45,7 +53,7 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
       amountCents: out.request.amountCents,
       reasons: out.reasons,
     };
-    return `${out.message} Say yes to confirm, or no to cancel.`;
+    return { kind: "asked", message: `${out.message} Say yes to confirm, or no to cancel.` };
   }
 
   session.pending = null;
@@ -61,17 +69,19 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
       // Never hand the money back when we do not know where it went.
       gate.flagUnconfirmed(out.reservationId);
       console.error("payment unconfirmed:", err.message);
-      return (
-        `I couldn't confirm whether the ${summary} payment went through. ` +
-        "I'm keeping it counted against your daily limit until you check PayPal."
-      );
+      return {
+        kind: "unconfirmed",
+        message:
+          `I couldn't confirm whether the ${summary} payment went through. ` +
+          "I'm keeping it counted against your daily limit until you check PayPal.",
+      };
     }
     gate.fail(out.reservationId);
     console.error("payment failed:", err instanceof Error ? err.message : err);
-    return "The payment did not go through, and nothing was charged.";
+    return { kind: "failed", message: "The payment did not go through, and nothing was charged." };
   }
   gate.complete(out.reservationId, ref);
-  return executor.receipt(summary);
+  return { kind: "paid", message: executor.receipt(summary) };
 }
 
 /**
@@ -83,14 +93,14 @@ export async function answerPending(
   session: Session,
   answer: "yes" | "no",
   executor: Executor,
-): Promise<string> {
+): Promise<Settled> {
   const { pending, gate } = session;
-  if (!pending) return "There is nothing waiting for an answer.";
+  if (!pending) return { kind: "idle", message: "There is nothing waiting for an answer." };
 
   if (answer === "no") {
     gate.cancel(pending.proposalId);
     session.pending = null;
-    return "Okay, I cancelled that. Nothing was paid.";
+    return { kind: "cancelled", message: "Okay, I cancelled that. Nothing was paid." };
   }
   return settle(session, gate.confirm(pending.proposalId), executor);
 }

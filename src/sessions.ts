@@ -24,6 +24,8 @@ export interface Session {
   paypal: ConnectedWallet | null;
   /** The setup token this visitor is in the middle of approving. */
   paypalSetupId: string | null;
+  /** Plain-text turns the agent remembers, oldest first. */
+  history: { role: "user" | "assistant"; content: string }[];
   lastSeen: number;
 }
 
@@ -71,6 +73,7 @@ export class SessionStore {
       pending: null,
       paypal: null,
       paypalSetupId: null,
+      history: [],
       lastSeen: now,
     };
     this.sessions.set(session.id, session);

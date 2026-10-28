@@ -110,7 +110,7 @@ export function createApp(options: AppOptions = {}) {
           });
           return;
         }
-        const reply = await answerPending(session, answer, executor);
+        const { message: reply } = await answerPending(session, answer, executor);
         res.json({ reply, wallet: snapshot(session) });
       }),
     );
