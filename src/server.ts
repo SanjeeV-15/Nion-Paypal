@@ -23,6 +23,7 @@ if (process.env.ANTHROPIC_API_KEY) {
     client: { beta: { messages: { create: (params) => anthropic.beta.messages.create(params) } } },
     model,
     onUsage: ({ inputTokens, outputTokens }) => console.log(`ai call: in=${inputTokens} out=${outputTokens}`),
+    onToolCall: ({ name, input, isError }) => console.log(`ai tool: ${name} ${JSON.stringify(input)}${isError ? " (error)" : ""}`),
     limiter: new ChatLimiter({
       perVisitorPerHour: whole(process.env.NION_MAX_AI_PER_HOUR, 40),
       perDay: whole(process.env.NION_MAX_AI_PER_DAY, 1500),

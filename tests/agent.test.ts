@@ -125,6 +125,64 @@ describe("a plain answer", () => {
   });
 });
 
+describe("what the model is told about payments", () => {
+  const stateOf = (req: Record<string, any> | undefined) => (req?.system as { text: string }[])[1]?.text ?? "";
+
+  it("says nothing has been paid when that is true", async () => {
+    const t = setup([say("Hello.")]);
+    await t.say("hi");
+    expect(stateOf(t.requests[0])).toContain("No payments have been made yet.");
+  });
+
+  it("lists real payments from the ledger, with their true status", async () => {
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 })),
+      say("Anything else?"),
+    ]);
+    await t.say("pay 12 dollars to Sunrise Cafe");
+    await t.say("thanks");
+    expect(stateOf(t.requests[1])).toContain("Payments so far, oldest first: $12.00 to Sunrise Cafe (paid).");
+  });
+
+  it("shows failed and doubtful payments as what they are", async () => {
+    const t = setup([say("Okay.")]);
+    const gate = t.session.gate;
+    const a = gate.request({ merchantId: "sunrise-cafe", amountCents: 500, currency: "USD" });
+    const b = gate.request({ merchantId: "harbor-tours", amountCents: 600, currency: "USD" });
+    const c = gate.request({ merchantId: "blue-door-taxi", amountCents: 700, currency: "USD" });
+    if (a.status !== "approved" || b.status !== "approved" || c.status !== "approved") throw new Error("expected approvals");
+    gate.fail(a.reservationId);
+    gate.flagUnconfirmed(b.reservationId);
+    await t.say("what happened");
+    const state = stateOf(t.requests[0]);
+    expect(state).toContain("$5.00 to Sunrise Cafe (failed, nothing was charged)");
+    expect(state).toContain("$6.00 to Harbor Tours (could not be confirmed)");
+    expect(state).toContain("$7.00 to Blue Door Taxi (in progress)");
+  });
+
+  it("tells the model that the payment system wrote some of its earlier replies", () => {
+    expect(SYSTEM_PROMPT).toMatch(/written by the payment system itself/);
+    expect(SYSTEM_PROMPT).toMatch(/never retract them/);
+    expect(SYSTEM_PROMPT).toMatch(/not a request to pay again/);
+  });
+
+  it("reports every tool the model uses", async () => {
+    const seen: { name: string; input: unknown; isError: boolean }[] = [];
+    const model = fakeModel([
+      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: "twelve" })),
+      say("Sorry, how many dollars?"),
+    ]);
+    const chat = createClaudeChat({
+      client: model.client,
+      model: "claude-sonnet-5-5",
+      limiter: new ChatLimiter({ perVisitorPerHour: 10, perDay: 10 }),
+      onToolCall: (c) => seen.push(c),
+    });
+    await chat(makeSession(), "pay twelve dollars", demoExecutor);
+    expect(seen).toEqual([{ name: "pay", input: { merchant_id: "sunrise-cafe", amount_usd: "twelve" }, isError: true }]);
+  });
+});
+
 describe("usage", () => {
   it("reports tokens after every model call, tool rounds included", async () => {
     const seen: { inputTokens: number; outputTokens: number }[] = [];
@@ -178,6 +236,30 @@ describe("paying", () => {
     const result = (t.requests[1]?.messages as { role: string; content: any }[]).at(-1);
     expect(result?.content[0]).toMatchObject({ type: "tool_result", tool_use_id: "t1" });
     expect(JSON.parse(result?.content[0].content)).toMatchObject({ status: "paid" });
+  });
+
+  it("lets the model carry on after a cancel, so 'make it ten dollars' still pays ten", async () => {
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })),
+      call(use("t2", "cancel_pending_payment")),
+      call(use("t3", "pay", { merchant_id: "blue-door-taxi", amount_usd: 10 })),
+    ]);
+    await t.say("pay 48 dollars to Blue Door Taxi");
+    const reply = await t.say("yes but make it ten dollars");
+    expect(reply).toMatch(/^Cleared to pay \$10\.00 to Blue Door Taxi/);
+    expect(t.session.gate.spentToday()).toBe(1000);
+    expect(t.session.pending).toBeNull();
+    expect(t.requests).toHaveLength(3); // ask, cancel, then the new payment
+  });
+
+  it("tells the user about a cancel that was all they asked for, using the model's words", async () => {
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })),
+      call(use("t2", "cancel_pending_payment")),
+      say("Okay, I cancelled it."),
+    ]);
+    await t.say("pay 48 dollars to Blue Door Taxi");
+    expect(await t.say("actually, forget that payment")).toBe("Okay, I cancelled it.");
   });
 
   it("does not let the model reword a refusal", async () => {

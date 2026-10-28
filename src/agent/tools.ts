@@ -80,10 +80,10 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext): P
       return ok(MERCHANTS.map((m) => ({ id: m.id, name: m.name, description: m.blurb })));
     case "get_wallet":
       return ok(walletFacts(ctx));
-    case "cancel_pending_payment": {
-      const result = cancelPending(ctx.session);
-      return ok(result, "message" in result ? result.message : undefined);
-    }
+    // No reply here: a cancel is often the first step of something else, such as
+    // "make it ten dollars", so the model must get to carry on.
+    case "cancel_pending_payment":
+      return ok(cancelPending(ctx.session));
     case "pay":
       return pay(input, ctx);
     default:
