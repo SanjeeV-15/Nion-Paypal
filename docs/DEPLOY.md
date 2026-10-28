@@ -16,6 +16,13 @@ The repository includes a Render Blueprint (`render.yaml`), so the service is cr
 4. Apply. When the deploy finishes, open `https://<your-service>.onrender.com/api/health`. It should answer `{"ok":true}`.
 5. Open the site, click **Connect PayPal**, sign in as the sandbox buyer, and make a test payment.
 
+## Optional: the demo wallet
+A saved sandbox wallet that visitors can use without signing in to PayPal.
+1. Get a saved wallet's id by connecting a sandbox buyer once with the smoke tool, then print it: `npm run smoke:paypal -- vault`.
+2. In Render open the service's **Environment** tab and add `DEMO_WALLET_VAULT_ID` with that id. Treat it like a password for that sandbox buyer. Saving redeploys the service.
+3. Open the site: the page now offers **Use the demo wallet** next to **Connect PayPal**.
+Because Render only asks for `sync: false` values when the Blueprint is first created, add this one by hand on an existing service.
+
 ## Notes
 - The PayPal return address is taken from `RENDER_EXTERNAL_URL`, which Render sets for you. To use a custom domain, set `PUBLIC_BASE_URL` to it.
 - `PAYPAL_ENV` is `sandbox` and the server refuses to start with any other value when credentials are present.

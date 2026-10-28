@@ -24,6 +24,12 @@ services:
         value: "40"
       - key: NION_MAX_AI_PER_DAY
         value: "500"
+      # Optional: a saved sandbox wallet visitors can use without signing in to PayPal.
+      # Leave the value blank to switch the demo wallet off.
+      - key: DEMO_WALLET_VAULT_ID
+        sync: false
+      - key: DEMO_WALLET_LABEL
+        value: shared demo buyer (sandbox)
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: PAYPAL_CLIENT_ID

@@ -34,9 +34,15 @@ if (process.env.ANTHROPIC_API_KEY) {
 
 const baseUrl = publicBaseUrl(process.env, port);
 
-createApp({ paypal, chat, publicBaseUrl: baseUrl }).listen(port, () => {
+// Optional: a saved sandbox wallet that visitors can use without signing in to PayPal.
+const demoWallet =
+  paypal && process.env.DEMO_WALLET_VAULT_ID
+    ? { vaultId: process.env.DEMO_WALLET_VAULT_ID, label: process.env.DEMO_WALLET_LABEL || "shared demo buyer (sandbox)" }
+    : undefined;
+
+createApp({ paypal, chat, publicBaseUrl: baseUrl, demoWallet }).listen(port, () => {
   console.log(
-    `nion-paypal listening on ${baseUrl} | payments: ${paypal ? "PayPal sandbox" : "demo"} | chat: ${chat ? `Claude (${model})` : "simple responder"}`,
+    `nion-paypal listening on ${baseUrl} | payments: ${paypal ? "PayPal sandbox" : "demo"} | chat: ${chat ? `Claude (${model})` : "simple responder"} | demo wallet: ${demoWallet ? "on" : "off"}`,
   );
 });
 

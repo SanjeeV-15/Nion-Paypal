@@ -168,7 +168,7 @@ describe("secrets stay out of the repository", () => {
 
   it("marks every secret in render.yaml as asked-for rather than written down", () => {
     const yaml = readFileSync("render.yaml", "utf8");
-    for (const key of ["ANTHROPIC_API_KEY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET"]) {
+    for (const key of ["ANTHROPIC_API_KEY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "DEMO_WALLET_VAULT_ID"]) {
       expect(yaml).toMatch(new RegExp(`key: ${key}\\n\\s+sync: false`));
     }
     expect(yaml).toMatch(/key: PAYPAL_ENV\n\s+value: sandbox/);

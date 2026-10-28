@@ -4,6 +4,7 @@
 //   npm run smoke:paypal -- charge 100       charge it (amount in cents)
 //   npm run smoke:paypal -- refund           refund the last charge
 //   npm run smoke:paypal -- unlink           delete the saved wallet
+//   npm run smoke:paypal -- vault            print the saved wallet's id (for DEMO_WALLET_VAULT_ID)
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { PayPalClient, PayPalError } from "../src/paypal/client.js";
@@ -75,6 +76,12 @@ try {
       console.log(`Refund ${refund.id} is ${refund.status}.`);
       break;
     }
+    case "vault": {
+      if (!state.vaultId) fail("Nothing saved. Run setup and finish first.");
+      console.log("Saved wallet id. Treat it like a password for that sandbox buyer; paste it only into Render:");
+      console.log(state.vaultId);
+      break;
+    }
     case "unlink": {
       if (!state.vaultId) fail("Nothing saved.");
       await paypal.deleteSavedWallet(state.vaultId);
@@ -84,7 +91,7 @@ try {
       break;
     }
     default:
-      fail("Commands: setup | finish | charge <cents> | refund | unlink");
+      fail("Commands: setup | finish | charge <cents> | refund | vault | unlink");
   }
 } catch (err) {
   if (err instanceof PayPalError) {

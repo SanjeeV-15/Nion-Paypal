@@ -17,13 +17,10 @@ This is a working prototype on PayPal's sandbox, so it uses test money, and the 
 ## Try it
 
 1. Open the live demo in **Chrome** (voice needs Chrome or another Chromium browser; typing works in any browser).
-2. Click **Connect PayPal**, sign in with the sandbox buyer below, and approve. You are sent back to the app. Nothing is charged when you connect.
+2. Choose how to pay:
+   - **Use the demo wallet** (fastest): no sign-in. A shared PayPal sandbox buyer is already saved, and payments are still real PayPal sandbox calls.
+   - **Connect PayPal**: you are sent to PayPal's own page to approve saving a sandbox buyer account of your own (any PayPal sandbox personal account works). Nothing is charged when you connect.
 3. Talk to it (tap the circle) or type.
-
-**Sandbox buyer for testing** (a PayPal sandbox account with fake money):
-
-- Email: `[fill in]`
-- Password: `[fill in]`
 
 | Say or type | What happens |
 |---|---|
@@ -68,6 +65,8 @@ Express server ── Claude agent (tools: pay, get_wallet, list_merchants, canc
 **Claude has no confirm tool.** A payment waiting for approval can be released only by the user saying a plain "yes" (matched strictly on the whole utterance, so "yes but make it five" is not a yes) or tapping Confirm. Both go straight to the gate and never pass through the model.
 
 **Connecting PayPal** uses PayPal's save-without-purchase flow: a Vault v3 setup token, the buyer approves on PayPal's own page, and the app exchanges it for a saved payment token. The return is accepted only for the setup token that visitor started.
+
+**The demo wallet** is one saved sandbox buyer that the server offers to any visitor who would rather not sign in. It is set with `DEMO_WALLET_VAULT_ID`. Every visitor still has their own limits, bills and payments, and "disconnecting" only forgets the wallet for that visitor: the shared wallet is never deleted at PayPal.
 
 **Paying later** creates an Orders v2 order that uses the saved token, with the buyer absent. The ledger id is the idempotency key, so a retry after a dropped connection cannot charge twice.
 
@@ -127,6 +126,8 @@ npm run dev              # http://localhost:4310
 | `CLAUDE_MODEL` | Model for the agent | `claude-sonnet-5-5` |
 | `PAYPAL_ENV` | Must be `sandbox` | |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal sandbox app | unset (demo payments) |
+| `DEMO_WALLET_VAULT_ID` | A saved sandbox wallet any visitor may use without signing in (get it with `npm run smoke:paypal -- vault`) | unset (no demo wallet) |
+| `DEMO_WALLET_LABEL` | How that wallet is described on the page | `shared demo buyer (sandbox)` |
 | `PORT` | Server port | `4310` |
 | `PUBLIC_BASE_URL` | Where PayPal sends the buyer back | `RENDER_EXTERNAL_URL`, else `http://localhost:PORT` |
 | `NION_MAX_AI_PER_HOUR` | AI answers per visitor per hour | `40` |
@@ -141,7 +142,7 @@ npm run dev              # http://localhost:4310
 | `npm test` | Run all tests (no network, no cost: PayPal and Claude are faked) |
 | `npm run typecheck` | Type-check everything |
 | `npm run build` / `npm start` | Build and run the compiled server |
-| `npm run smoke:paypal -- <step>` | Walk the real sandbox flow: `setup`, `finish`, `charge 100`, `refund`, `unlink` |
+| `npm run smoke:paypal -- <step>` | Walk the real sandbox flow: `setup`, `finish`, `charge 100`, `refund`, `vault`, `unlink` |
 
 ### Project layout
 
@@ -179,6 +180,7 @@ These are ideas, not features. The demo today pays three example merchants.
 - **Refunds** exist in the client and smoke tool, but the app does not offer them yet.
 - **Unconfirmed payments** are held against the daily limit but are not reconciled automatically.
 - **Sample bills.** Every visitor gets the same four bills, with due dates a few days out. You cannot add or edit bills yet, and the $900 rent is meant to be refused by the per-payment limit.
+- **The demo wallet is shared.** Every visitor who picks it pays from the same sandbox buyer. That is fine for test money, and the per-visitor limits still apply, but it is not how a real wallet would work.
 - **Fixed payees.** US dollars only, and a fixed list of merchants and bill payees. Limits can be changed by the user, but only up to the ceilings above.
 - **Usage caps.** Past the AI caps the app uses its simple mode.
 

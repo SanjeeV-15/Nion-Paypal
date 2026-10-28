@@ -34,6 +34,9 @@ const els = {
   paypalStatus: $("paypal-status"),
   paypalConnect: $("paypal-connect"),
   paypalDisconnect: $("paypal-disconnect"),
+  paypalDemo: $("paypal-demo"),
+  noticeAction2: $("notice-action-2"),
+  whereDemo: $("where-demo"),
   spent: $("spent"),
   meter: $("meter"),
   meterFill: $("meter-fill"),
@@ -372,20 +375,31 @@ function renderPayPal(paypal) {
     updateNotice();
     return;
   }
-  els.paypalStatus.textContent = paypal.connected
-    ? `Connected${paypal.email ? ` as ${paypal.email}` : ""}. I can pay merchants within your limits.`
-    : "Not connected. Connect the sandbox buyer account once, and I can pay for you.";
+  if (paypal.connected) {
+    els.paypalStatus.textContent = paypal.shared
+      ? `Using the ${paypal.email}. No sign-in needed; payments are still real PayPal sandbox calls.`
+      : `Connected${paypal.email ? ` as ${paypal.email}` : ""}. I can pay merchants within your limits.`;
+  } else {
+    els.paypalStatus.textContent = paypal.demoWalletAvailable
+      ? "Not connected. Connect a sandbox buyer once, or use the shared demo wallet."
+      : "Not connected. Connect the sandbox buyer account once, and I can pay for you.";
+  }
   els.paypalConnect.hidden = paypal.connected;
+  els.paypalDemo.hidden = paypal.connected || !paypal.demoWalletAvailable;
   els.paypalDisconnect.hidden = !paypal.connected;
+  els.paypalDisconnect.textContent = paypal.shared ? "Stop using it" : "Disconnect";
+  els.whereDemo.hidden = !paypal.demoWalletAvailable;
   updateNotice();
 }
 
-function showNotice(text, { kind, action, dismissible } = {}) {
+function showNotice(text, { kind, action, action2, dismissible } = {}) {
   els.notice.hidden = false;
   els.notice.dataset.kind = kind || "info";
   els.noticeText.textContent = text;
   els.noticeAction.hidden = !action;
   els.noticeAction.textContent = action || "";
+  els.noticeAction2.hidden = !action2;
+  els.noticeAction2.textContent = action2 || "";
   els.noticeDismiss.hidden = !dismissible;
 }
 
@@ -397,7 +411,12 @@ function updateNotice() {
   }
   const paypal = state.wallet?.paypal;
   if (paypal && !paypal.connected) {
-    showNotice("Connect PayPal once so I can pay for you within your limits.", { action: "Connect PayPal" });
+    showNotice(
+      paypal.demoWalletAvailable
+        ? "Connect PayPal, or use the shared demo wallet, so I can pay for you within your limits."
+        : "Connect PayPal once so I can pay for you within your limits.",
+      { action: "Connect PayPal", ...(paypal.demoWalletAvailable ? { action2: "Use the demo wallet" } : {}) },
+    );
     return;
   }
   els.notice.hidden = true;
@@ -572,6 +591,22 @@ async function connectPayPal() {
   }
 }
 
+async function useDemoWallet() {
+  els.paypalDemo.disabled = true;
+  els.noticeAction2.disabled = true;
+  try {
+    const { wallet } = await api("/api/paypal/use-demo-wallet", {});
+    renderWallet(wallet);
+    setFlash("Using the shared demo wallet. Payments are real PayPal sandbox calls with test money.", "info");
+  } catch (err) {
+    if (err.wallet) renderWallet(err.wallet);
+    setFlash(err.message, "problem");
+  } finally {
+    els.paypalDemo.disabled = false;
+    els.noticeAction2.disabled = false;
+  }
+}
+
 async function disconnectPayPal() {
   els.paypalDisconnect.disabled = true;
   try {
@@ -587,6 +622,8 @@ async function disconnectPayPal() {
 
 els.paypalConnect.addEventListener("click", connectPayPal);
 els.noticeAction.addEventListener("click", connectPayPal);
+els.paypalDemo.addEventListener("click", useDemoWallet);
+els.noticeAction2.addEventListener("click", useDemoWallet);
 els.paypalDisconnect.addEventListener("click", disconnectPayPal);
 els.noticeDismiss.addEventListener("click", () => {
   state.flash = null;

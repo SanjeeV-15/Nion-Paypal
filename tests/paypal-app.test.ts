@@ -58,7 +58,7 @@ describe("connecting PayPal", () => {
     const app = await startApp({ paypal });
     const w = await wallet(app);
     expect(w.mode).toBe("sandbox");
-    expect(w.paypal).toEqual({ connected: false });
+    expect(w.paypal).toEqual({ connected: false, demoWalletAvailable: false });
   });
 
   it("stays in demo mode, with no PayPal routes, when there is no PayPal client", async () => {
@@ -93,7 +93,7 @@ describe("connecting PayPal", () => {
   it("connects after the buyer approves, using the setup token as an idempotency key", async () => {
     const app = await connected();
     const w = await wallet(app);
-    expect(w.paypal).toEqual({ connected: true, email: "buyer@example.com" });
+    expect(w.paypal).toEqual({ connected: true, email: "buyer@example.com", demoWalletAvailable: false });
     expect(app.calls.wallets).toEqual([{ setupId: app.setupId, requestId: `wallet-${app.setupId}` }]);
   });
 
@@ -392,11 +392,117 @@ describe("starting over while connected", () => {
     const app = await connected();
     await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
     const out = await app.call("/api/reset", {});
-    expect(out.json.wallet.paypal).toEqual({ connected: true, email: "buyer@example.com" });
+    expect(out.json.wallet.paypal).toEqual({ connected: true, email: "buyer@example.com", demoWalletAvailable: false });
     expect(out.json.wallet.spentCents).toBe(0);
     // And it can still pay straight away, with the same saved wallet.
     await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
     expect(app.calls.charges).toHaveLength(2);
     expect(app.calls.charges[1]?.vaultId).toBe(`VAULT-${app.setupId}`);
+  });
+});
+
+describe("the shared demo wallet", () => {
+  const demoWallet = { vaultId: "SHARED-VAULT", label: "shared demo buyer (sandbox)" };
+  const withDemo = async (overrides: Record<string, unknown> = {}) => {
+    const fake = fakePayPal(overrides);
+    const app = await startApp({ paypal: fake.paypal, demoWallet });
+    return { ...fake, ...app };
+  };
+
+  it("is not offered unless it has been set up", async () => {
+    const { paypal } = fakePayPal();
+    const app = await startApp({ paypal });
+    expect((await wallet(app)).paypal).toEqual({ connected: false, demoWalletAvailable: false });
+    expect((await app.call("/api/paypal/use-demo-wallet", {})).status).toBe(404);
+  });
+
+  it("is never offered in demo mode, where there is no PayPal", async () => {
+    const app = await startApp({ demoWallet });
+    expect((await wallet(app)).paypal).toBeNull();
+    expect((await app.call("/api/paypal/use-demo-wallet", {})).status).toBe(404);
+  });
+
+  it("is offered when it has been set up", async () => {
+    const app = await withDemo();
+    expect((await wallet(app)).paypal).toEqual({ connected: false, demoWalletAvailable: true });
+  });
+
+  it("connects without asking PayPal anything, and says it is shared", async () => {
+    const app = await withDemo();
+    const out = await app.call("/api/paypal/use-demo-wallet", {});
+    expect(out.status).toBe(200);
+    expect(out.json.wallet.paypal).toEqual({
+      connected: true,
+      email: "shared demo buyer (sandbox)",
+      shared: true,
+      demoWalletAvailable: true,
+    });
+    expect(app.calls.setups).toHaveLength(0);
+    expect(app.calls.wallets).toHaveLength(0);
+  });
+
+  it("pays from the shared wallet through the same gate", async () => {
+    const app = await withDemo();
+    await app.call("/api/paypal/use-demo-wallet", {});
+    const small = await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    expect(small.json.reply).toBe("Paid $12.00 to Sunrise Cafe with PayPal.");
+    expect(app.calls.charges[0]).toMatchObject({ vaultId: "SHARED-VAULT", amountCents: 1200 });
+
+    const big = await app.call("/api/chat", chat("pay $48 to Blue Door Taxi"));
+    expect(big.json.wallet.pending).not.toBeNull();
+    expect(app.calls.charges).toHaveLength(1); // still waiting for the visitor's own yes
+    const refused = await app.call("/api/chat", chat("pay $101 to Blue Door Taxi"));
+    expect(refused.json.reply).toMatch(/limit for one payment/);
+  });
+
+  it("never deletes the shared wallet at PayPal when a visitor lets go of it", async () => {
+    const app = await withDemo();
+    await app.call("/api/paypal/use-demo-wallet", {});
+    const out = await app.call("/api/paypal/disconnect", {});
+    expect(out.json.wallet.paypal.connected).toBe(false);
+    expect(app.calls.deleted).toEqual([]);
+    // It is still there for the next person.
+    await app.call("/api/paypal/use-demo-wallet", {});
+    expect((await wallet(app)).paypal?.connected).toBe(true);
+  });
+
+  it("still deletes a wallet the visitor connected for themselves", async () => {
+    const app = await withDemo();
+    await app.call("/api/paypal/connect", {});
+    await app.call(`/api/paypal/return?approval_token_id=${app.calls.setups[0]}`, undefined, manual);
+    await app.call("/api/paypal/disconnect", {});
+    expect(app.calls.deleted).toEqual([`VAULT-${app.calls.setups[0]}`]);
+  });
+
+  it("is shared by many visitors, each with their own limits and payments", async () => {
+    const fake = fakePayPal();
+    const a = await startApp({ paypal: fake.paypal, demoWallet });
+    const b = await startApp({ paypal: fake.paypal, demoWallet });
+    await a.call("/api/paypal/use-demo-wallet", {});
+    await b.call("/api/paypal/use-demo-wallet", {});
+    await a.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    expect((await wallet(a)).spentCents).toBe(1200);
+    expect((await wallet(b)).spentCents).toBe(0);
+    await b.call("/api/chat", chat("pay $20 to Sunrise Cafe"));
+    expect(fake.calls.charges.map((c) => c.vaultId)).toEqual(["SHARED-VAULT", "SHARED-VAULT"]);
+  });
+
+  it("will not replace a connection the visitor already has", async () => {
+    const app = await withDemo();
+    await app.call("/api/paypal/use-demo-wallet", {});
+    expect((await app.call("/api/paypal/use-demo-wallet", {})).status).toBe(409);
+  });
+
+  it("survives Start over, like any other connection", async () => {
+    const app = await withDemo();
+    await app.call("/api/paypal/use-demo-wallet", {});
+    const out = await app.call("/api/reset", {});
+    expect(out.json.wallet.paypal).toMatchObject({ connected: true, shared: true });
+  });
+
+  it("is not reachable by a request that is not JSON", async () => {
+    const app = await withDemo();
+    const res = await app.call("/api/paypal/use-demo-wallet", "x", { headers: { "Content-Type": "text/plain" } });
+    expect(res.status).toBe(415);
   });
 });

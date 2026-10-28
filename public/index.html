@@ -24,6 +24,7 @@
         <div class="notice" id="notice" role="status" hidden>
           <span id="notice-text"></span>
           <button type="button" class="btn small primary" id="notice-action" hidden></button>
+          <button type="button" class="btn small" id="notice-action-2" hidden></button>
           <button type="button" class="btn small" id="notice-dismiss" hidden>Dismiss</button>
         </div>
 
@@ -84,6 +85,7 @@
           <p class="paypal-status" id="paypal-status"></p>
           <div class="paypal-actions">
             <button type="button" class="btn primary" id="paypal-connect">Connect PayPal</button>
+            <button type="button" class="btn" id="paypal-demo" hidden>Use the demo wallet</button>
             <button type="button" class="btn" id="paypal-disconnect" hidden>Disconnect</button>
           </div>
           <details class="where">
@@ -92,6 +94,7 @@
               <li><strong>Connect.</strong> PayPal's Vault saves your wallet after you approve on PayPal's own page. Nothing is charged.</li>
               <li><strong>Pay.</strong> PayPal's Orders API charges that saved wallet when you or Claude ask. Every payment carries a key, so a retry can't charge twice.</li>
               <li><strong>Receipts.</strong> The PayPal reference under each payment is PayPal's own ID for it.</li>
+              <li id="where-demo" hidden><strong>Demo wallet.</strong> A shared sandbox buyer that is already saved, so you can try payments without signing in. They are still real PayPal sandbox calls.</li>
               <li><strong>Sandbox.</strong> Test money only.</li>
             </ul>
           </details>

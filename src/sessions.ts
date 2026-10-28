@@ -18,6 +18,8 @@ export interface ConnectedWallet {
   vaultId: string;
   customerId?: string;
   email?: string;
+  /** The shared demo wallet: many visitors use it, so it must never be deleted at PayPal. */
+  shared?: boolean;
 }
 
 export interface Session {

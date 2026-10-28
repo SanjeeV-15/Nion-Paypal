@@ -30,7 +30,7 @@ export interface WalletSnapshot {
     ref?: string;
   }[];
   /** Null in demo mode, where there is no PayPal to connect. */
-  paypal: { connected: boolean; email?: string } | null;
+  paypal: { connected: boolean; email?: string; shared?: boolean; demoWalletAvailable: boolean } | null;
   pending: {
     proposalId: string;
     expiresAt: number;
@@ -43,7 +43,11 @@ export interface WalletSnapshot {
   } | null;
 }
 
-export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): WalletSnapshot {
+export function walletSnapshot(
+  session: Session,
+  mode: WalletSnapshot["mode"],
+  options: { demoWalletAvailable?: boolean } = {},
+): WalletSnapshot {
   const { gate } = session;
   if (session.pending && Date.now() >= session.pending.expiresAt) session.pending = null;
 
@@ -79,6 +83,8 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
         ? {
             connected: session.paypal !== null,
             ...(session.paypal?.email ? { email: session.paypal.email } : {}),
+            ...(session.paypal?.shared ? { shared: true } : {}),
+            demoWalletAvailable: options.demoWalletAvailable === true,
           }
         : null,
     pending: session.pending

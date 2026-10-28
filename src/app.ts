@@ -31,6 +31,8 @@ export interface AppOptions {
   publicBaseUrl?: string;
   /** How many brand-new visitors one network may create per minute. */
   newVisitorsPerMinute?: number;
+  /** A saved sandbox wallet any visitor may use without signing in to PayPal. */
+  demoWallet?: { vaultId: string; label: string };
 }
 
 const CSP = [
@@ -58,7 +60,9 @@ export function createApp(options: AppOptions = {}) {
   const executor = options.executor ?? (paypal ? new PayPalExecutor(paypal) : demoExecutor);
   const mode = paypal ? "sandbox" : "demo";
   const baseUrl = (options.publicBaseUrl ?? "http://localhost:4310").replace(/\/+$/, "");
-  const snapshot = (session: Session) => walletSnapshot(session, mode);
+  const demoWallet = paypal ? options.demoWallet : undefined;
+  const snapshot = (session: Session) =>
+    walletSnapshot(session, mode, { demoWalletAvailable: demoWallet !== undefined });
 
   const newVisitors = new WindowLimiter({ max: options.newVisitorsPerMinute ?? 30, windowMs: 60_000 });
 
@@ -218,6 +222,20 @@ export function createApp(options: AppOptions = {}) {
       }),
     );
 
+    // Judges and visitors who would rather not sign in to PayPal's sandbox can use a shared,
+    // already-saved sandbox buyer. Payments are still real PayPal sandbox calls.
+    if (demoWallet) {
+      app.post("/api/paypal/use-demo-wallet", (_req, res) => {
+        const session = res.locals.session as Session;
+        if (session.paypal) {
+          res.status(409).json({ error: "PayPal is already connected.", wallet: snapshot(session) });
+          return;
+        }
+        session.paypal = { vaultId: demoWallet.vaultId, email: demoWallet.label, shared: true };
+        res.json({ wallet: snapshot(session) });
+      });
+    }
+
     // PayPal sends the buyer here after they approve. The setup token must be the
     // one this visitor started, so nobody can attach a wallet to someone else's session.
     app.get(
@@ -256,7 +274,8 @@ export function createApp(options: AppOptions = {}) {
       handler(async (_req, res) => {
         const session = res.locals.session as Session;
         const wallet = session.paypal;
-        if (wallet) {
+        // The shared demo wallet belongs to everyone using it, so only forget it, never delete it.
+        if (wallet && !wallet.shared) {
           try {
             await paypal.deleteSavedWallet(wallet.vaultId);
           } catch (err) {
@@ -270,8 +289,8 @@ export function createApp(options: AppOptions = {}) {
               return;
             }
           }
-          session.paypal = null;
         }
+        session.paypal = null;
         res.json({ wallet: snapshot(session) });
       }),
     );

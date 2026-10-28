@@ -218,6 +218,10 @@ describe("bills", () => {
     expect(JSON.parse(result.content)).toHaveLength(4);
   });
 
+  it("is told to keep a spoken list of bills short", () => {
+    expect(SYSTEM_PROMPT).toMatch(/next one or two/);
+  });
+
   it("is told about the bill tools and to use pay_bill for bills", () => {
     expect(SYSTEM_PROMPT).toContain("pay_bill");
     expect(SYSTEM_PROMPT).toContain("list_bills");
