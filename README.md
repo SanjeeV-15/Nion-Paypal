@@ -1,12 +1,18 @@
 # Nion Pay
 
-<!-- TODO(you): one-line tagline in your own words. -->
+A voice assistant that pays with PayPal, inside limits the AI can't change.
 
 **Live demo:** https://nion-pay.onrender.com/ (PayPal sandbox only: test money, no real payments)
 
 ## The idea
 
-<!-- TODO(you): the problem, who it is for, and why it matters, in your own words. -->
+Paying for small things is awkward when your hands or eyes are busy: a taxi at the curb, a coffee while you carry bags, a ticket counter with a queue behind you. A voice assistant could handle it, but few people want to give a chatbot their wallet. An AI that can spend money has to be one you can trust not to overspend, mishear you, or be talked into something.
+
+Nion Pay is a voice assistant that pays approved merchants from your PayPal wallet. You connect PayPal once, on PayPal's own page, then say what you want paid: "pay twelve dollars to Sunrise Cafe". Small payments go through. Larger ones wait for your own yes. Anything over the limits you set is refused. When it isn't sure what it heard, it asks.
+
+The trust comes from how it is built. Claude, the AI model, can ask to make a payment, but it cannot approve one. A separate piece of ordinary code checks every request against your limits, and only you can confirm a large payment, by saying yes or tapping a button. That path never goes through the AI, so no instruction, however clever, can talk it into paying. If PayPal cannot tell us whether a payment went through, the app does not guess. It keeps the amount counted against your daily limit and says so.
+
+This is a working prototype on PayPal's sandbox, so it uses test money, and the three merchants are examples. The same design could sit in front of any list of merchants.
 
 ## Try it
 
@@ -155,7 +161,7 @@ The repository includes a Render Blueprint. See [docs/DEPLOY.md](docs/DEPLOY.md)
 
 The git history starts on 2026-10-27, during the hackathon submission period.
 
-<!-- TODO(you): if you want to say how this relates to your earlier voice-companion project, do it here in your own words. -->
+Nion Pay grew out of Nion, a voice companion for travelers that I built for an earlier hackathon. This project was started from scratch for this one, and none of that code was reused.
 
 ## License
 
