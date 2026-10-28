@@ -51,3 +51,33 @@ export class ChatLimiter {
     }
   }
 }
+
+export interface WindowOptions {
+  max: number;
+  windowMs: number;
+  now?: () => number;
+}
+
+/** At most `max` events per key in any `windowMs`, for example new visitors from one network. */
+export class WindowLimiter {
+  private readonly now: () => number;
+  private readonly seen = new Map<string, number[]>();
+
+  constructor(private readonly options: WindowOptions) {
+    this.now = options.now ?? Date.now;
+  }
+
+  take(key: string): boolean {
+    const now = this.now();
+    for (const [k, times] of this.seen) {
+      const fresh = times.filter((t) => now - t < this.options.windowMs);
+      if (fresh.length === 0) this.seen.delete(k);
+      else if (fresh.length !== times.length) this.seen.set(k, fresh);
+    }
+    const recent = this.seen.get(key) ?? [];
+    if (recent.length >= this.options.max) return false;
+    recent.push(now);
+    this.seen.set(key, recent);
+    return true;
+  }
+}

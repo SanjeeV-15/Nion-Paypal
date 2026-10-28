@@ -49,6 +49,12 @@ export class SessionStore {
     return this.sessions.size;
   }
 
+  /** True if this id belongs to a live session, without touching it. */
+  has(id: string | undefined): boolean {
+    const session = id ? this.sessions.get(id) : undefined;
+    return session !== undefined && this.now() - session.lastSeen <= this.options.ttlMs;
+  }
+
   get(id: string | undefined): { session: Session; created: boolean } {
     const now = this.now();
     this.dropExpired(now);

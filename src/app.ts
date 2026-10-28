@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { demoChat } from "./chat/demo.js";
 import { defaultPolicy } from "./config.js";
+import { WindowLimiter } from "./limiter.js";
 import { SpendingGate } from "./limits/gate.js";
 import { MERCHANTS } from "./merchants.js";
 import { PayPalError, type PayPalClient } from "./paypal/client.js";
@@ -26,7 +27,21 @@ export interface AppOptions {
   paypal?: PayPalClient;
   /** Where PayPal sends the buyer back to. Always taken from config, never from the request. */
   publicBaseUrl?: string;
+  /** How many brand-new visitors one network may create per minute. */
+  newVisitorsPerMinute?: number;
 }
+
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
 
 export function createApp(options: AppOptions = {}) {
   const names = new Map(MERCHANTS.map((m) => [m.id, m.name]));
@@ -45,9 +60,21 @@ export function createApp(options: AppOptions = {}) {
   const baseUrl = (options.publicBaseUrl ?? "http://localhost:4310").replace(/\/+$/, "");
   const snapshot = (session: Session) => walletSnapshot(session, mode);
 
+  const newVisitors = new WindowLimiter({ max: options.newVisitorsPerMinute ?? 30, windowMs: 60_000 });
+
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
+  app.use((req, res, next) => {
+    res.setHeader("Content-Security-Policy", CSP);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    // The page needs the microphone for voice; nothing else.
+    res.setHeader("Permissions-Policy", "microphone=(self), camera=(), geolocation=()");
+    if (req.secure) res.setHeader("Strict-Transport-Security", "max-age=15552000");
+    next();
+  });
   app.use(express.json({ limit: "4kb" }));
 
   app.get("/api/health", (_req, res) => {
@@ -65,6 +92,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.use("/api", (req, res, next) => {
     const sid = readCookie(req.headers.cookie, COOKIE);
+    // Without a limit, someone could mint sessions fast enough to push real visitors out.
+    if (!store.has(sid) && !newVisitors.take(req.ip ?? "unknown")) {
+      res.status(429).json({ error: "Too many new visitors from your network. Try again in a minute." });
+      return;
+    }
     const { session, created } = store.get(sid);
     if (created || sid !== session.id) {
       res.cookie(COOKIE, session.id, {

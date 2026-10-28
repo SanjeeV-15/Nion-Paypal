@@ -1,0 +1,32 @@
+# Render Blueprint: one always-on web service. Secrets are not stored here;
+# Render asks for the three marked sync: false when the Blueprint is first created.
+services:
+  - type: web
+    name: nion-pay
+    runtime: node
+    # No plan set: Render's default (0.5 CPU, 512 MB) is the paid Starter size,
+    # which stays on. The free size sleeps after 15 minutes, which loses visitors' wallets.
+    region: oregon
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-5-5
+      # Caps on AI calls so a public demo cannot run up a bill.
+      - key: NION_MAX_AI_PER_HOUR
+        value: "40"
+      - key: NION_MAX_AI_PER_DAY
+        value: "500"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false

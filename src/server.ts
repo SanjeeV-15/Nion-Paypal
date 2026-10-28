@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClaudeChat } from "./agent/claude.js";
 import { createApp, type ChatHandler } from "./app.js";
+import { publicBaseUrl } from "./config.js";
 import { ChatLimiter } from "./limiter.js";
 import { PayPalClient } from "./paypal/client.js";
 
@@ -26,16 +27,16 @@ if (process.env.ANTHROPIC_API_KEY) {
     onToolCall: ({ name, input, isError }) => console.log(`ai tool: ${name} ${JSON.stringify(input)}${isError ? " (error)" : ""}`),
     limiter: new ChatLimiter({
       perVisitorPerHour: whole(process.env.NION_MAX_AI_PER_HOUR, 40),
-      perDay: whole(process.env.NION_MAX_AI_PER_DAY, 1500),
+      perDay: whole(process.env.NION_MAX_AI_PER_DAY, 500),
     }),
   });
 }
 
-const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://localhost:${port}`;
+const baseUrl = publicBaseUrl(process.env, port);
 
-createApp({ paypal, chat, publicBaseUrl }).listen(port, () => {
+createApp({ paypal, chat, publicBaseUrl: baseUrl }).listen(port, () => {
   console.log(
-    `nion-paypal listening on ${publicBaseUrl} | payments: ${paypal ? "PayPal sandbox" : "demo"} | chat: ${chat ? `Claude (${model})` : "simple responder"}`,
+    `nion-paypal listening on ${baseUrl} | payments: ${paypal ? "PayPal sandbox" : "demo"} | chat: ${chat ? `Claude (${model})` : "simple responder"}`,
   );
 });
 
