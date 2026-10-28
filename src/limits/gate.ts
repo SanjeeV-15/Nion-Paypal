@@ -23,6 +23,7 @@ export type Outcome =
       proposalId: string;
       expiresAt: number;
       reasons: ConfirmReason[];
+      request: PaymentRequest;
       message: string;
     }
   | { status: "denied"; reason: DenyReason; message: string };
@@ -45,6 +46,8 @@ interface Proposal {
 export interface GateOptions {
   now?: () => number;
   newId?: () => string;
+  /** Spoken name for a merchant id; defaults to the id itself. */
+  merchantName?: (merchantId: string) => string;
 }
 
 /**
@@ -57,6 +60,7 @@ export class SpendingGate {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly dayKey: (ms: number) => string;
+  private readonly merchantName: (merchantId: string) => string;
   private readonly entries = new Map<string, LedgerEntry>();
   private readonly proposals = new Map<string, Proposal>();
 
@@ -65,6 +69,7 @@ export class SpendingGate {
     this.now = options.now ?? Date.now;
     this.newId = options.newId ?? randomUUID;
     this.dayKey = dayKeyFormatter(this.policy.timeZone);
+    this.merchantName = options.merchantName ?? ((id) => id);
   }
 
   evaluate(input: PaymentRequest): Decision {
@@ -110,7 +115,7 @@ export class SpendingGate {
       return {
         outcome: "confirm",
         reasons,
-        message: `Pay ${money(req.amountCents)} to ${req.merchantId}? I'm asking because ${parts.join(" and ")}.`,
+        message: `Pay ${money(req.amountCents)} to ${this.merchantName(req.merchantId)}? I'm asking because ${parts.join(" and ")}.`,
       };
     }
     return { outcome: "approve" };
@@ -135,6 +140,7 @@ export class SpendingGate {
       proposalId,
       expiresAt,
       reasons: decision.reasons,
+      request: req,
       message: decision.message,
     };
   }
@@ -181,6 +187,11 @@ export class SpendingGate {
     this.settle(reservationId, "failed");
   }
 
+  limits() {
+    const { currency, autoApproveUpToCents, perPurchaseCapCents, dailyCapCents } = this.policy;
+    return { currency, autoApproveUpToCents, perPurchaseCapCents, dailyCapCents };
+  }
+
   spentToday(): number {
     const today = this.dayKey(this.now());
     let total = 0;
@@ -204,7 +215,7 @@ export class SpendingGate {
     return {
       status: "approved",
       reservationId: id,
-      message: `Cleared to pay ${formatMoney(req.amountCents, this.policy.currency)} to ${req.merchantId}.`,
+      message: `Cleared to pay ${formatMoney(req.amountCents, this.policy.currency)} to ${this.merchantName(req.merchantId)}.`,
     };
   }
 
