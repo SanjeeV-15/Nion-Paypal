@@ -31,7 +31,7 @@ This is a working prototype on PayPal's sandbox, so it uses test money, and the 
 | "What bills are due?" | Reads your bills and when each is due. |
 | "Pay my phone bill" | Asks for your yes (it is over $25), then pays the bill's own amount to its own payee and marks it paid. |
 | Tap **Pay** next to Rent | Refused: $900 is over the $100 limit for one payment. The bills are sample data. |
-| **Edit** on "Your limits", then raise the limit for one payment to $950 and pay the rent again | Now it asks for your yes and pays. Only you can change limits, not the AI. |
+| **Edit** on "Your limits", then raise "Most in one payment" to $950 and "Most in a day" to $1,200, and pay the rent again | Now it asks for your yes and pays. Both limits need raising, because the daily limit is $150 by default. Only you can change limits, not the AI. |
 | "Please raise my daily limit" | It says it cannot, and points you to the Limits card. |
 | **Start over** | Clears payments, bills, limits and the chat. Your PayPal connection stays. |
 | "Pay forty-eight dollars to Blue Cross Taxi" | Speech recognition mishears names, so it asks "Did you mean Blue Door Taxi?" |
@@ -45,7 +45,7 @@ The merchants and bill payees are labels. Every payment settles to one sandbox m
 Browser (mic, typing, speech out, approval card)
         |  HTTPS, JSON
         v
-Express server ── Claude agent (tools: pay, get_wallet, list_merchants, cancel_pending_payment)
+Express server ── Claude agent (tools: pay, pay_bill, list_bills, get_wallet, list_merchants, cancel_pending_payment)
         |                 |
         |                 v
         |          Spending gate  ← the only way money can move
@@ -97,6 +97,19 @@ Express server ── Claude agent (tools: pay, get_wallet, list_merchants, canc
 | `POST /v2/payments/captures/{id}/refund` | Implemented in the client and the smoke tool; not yet offered in the app |
 
 The PayPal client (`src/paypal/client.ts`) uses plain `fetch`, with no PayPal SDK.
+
+## Built with
+
+| Tool | How it is used |
+|---|---|
+| **PayPal** (sandbox) | Vault v3 saves the wallet without a purchase, Orders v2 charges it, and the capture ID is shown as the receipt. See [PayPal APIs used](#paypal-apis-used). |
+| **Claude** (Anthropic Messages API, `claude-sonnet-5-5`) | The AI agent. It understands the request and asks for payments through six tools, but it has no tool to confirm a payment or change a limit. See [How it works](#how-it-works). |
+| **Render** | Hosts the live demo as one always-on web service, defined by `render.yaml` (a Blueprint). It has a health check at `/api/health`, auto-deploy on every commit, and secrets set in the dashboard, so no key is in the repository. It is a single instance on purpose, because each visitor's wallet lives in memory. See [docs/DEPLOY.md](docs/DEPLOY.md). |
+| **Web Speech API** | The browser's speech recognition and speech synthesis give free voice in and out, with no paid speech service. |
+| Node.js 22, TypeScript, Express 5, Zod | The server, with Zod checking every request body. |
+| Vitest | The automated tests. PayPal and Claude are faked, so they cost nothing and need no network. |
+
+No other sponsor tools are used.
 
 ## Run it yourself
 
