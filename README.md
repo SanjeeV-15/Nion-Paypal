@@ -146,6 +146,14 @@ render.yaml    Render Blueprint (see docs/DEPLOY.md)
 
 The repository includes a Render Blueprint. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
+## Where it could go
+
+These are ideas, not features. The demo today pays three example merchants.
+
+**Bills.** Bills like a credit card, rent or a phone plan are easy to forget and slow to find: you open an app, hunt for the bill, and pay it. If Nion Pay held your bills and their due dates, you could say "pay my credit card bill" or "pay my rent" and have it done by voice, with the amount and due date already known. Anything that is not on autopay could be handled this way.
+
+**Friends and family.** With saved contacts, "send my friend fifty dollars" could work the same way, and so could a one-time PayPal payment, so small errands get done as you move. Sending money to people would need PayPal APIs that this prototype does not use and I have not built or tested them. It would also need the same limits and confirmations, and arguably stricter ones for a new recipient.
+
 ## Limits and known gaps
 
 - **Sandbox only.** The app will not start with PayPal credentials unless `PAYPAL_ENV=sandbox`.
