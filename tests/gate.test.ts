@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SpendingGate } from "../src/limits/gate.js";
-import type { Policy } from "../src/limits/policy.js";
+import { LimitsError, type Policy } from "../src/limits/policy.js";
 
 const T0 = Date.parse("2026-11-02T15:00:00Z");
 
@@ -355,6 +355,80 @@ describe("merchant names", () => {
     const named = new SpendingGate(policy, { now: () => clock, merchantName: () => "Sunrise Cafe" });
     expect(named.merchantLabel("sunrise-cafe")).toBe("Sunrise Cafe");
     expect(makeGate().merchantLabel("sunrise-cafe")).toBe("sunrise-cafe");
+  });
+});
+
+describe("changing limits", () => {
+  const limits = (autoApproveUpToCents: number, perPurchaseCapCents: number, dailyCapCents: number) => ({
+    autoApproveUpToCents,
+    perPurchaseCapCents,
+    dailyCapCents,
+  });
+
+  it("takes effect on the next payment", () => {
+    const gate = makeGate();
+    expect(gate.request(pay("sunrise-cafe", 3_000)).status).toBe("needs_confirmation");
+    gate.updateLimits(limits(5_000, 10_000, 15_000));
+    clock += 61_000;
+    expect(gate.request(pay("sunrise-cafe", 3_000)).status).toBe("approved");
+    expect(gate.limits()).toMatchObject({ autoApproveUpToCents: 5_000, perPurchaseCapCents: 10_000, dailyCapCents: 15_000 });
+  });
+
+  it("can raise the limit for one payment, within the ceiling", () => {
+    const gate = makeGate();
+    expect(gate.request(pay("blue-door-taxi", 90_000)).status).toBe("denied");
+    gate.updateLimits(limits(2_500, 100_000, 200_000));
+    expect(gate.request(pay("blue-door-taxi", 90_000)).status).toBe("needs_confirmation");
+  });
+
+  it("lowering the daily limit below what is already spent blocks everything more", () => {
+    const gate = makeGate();
+    gate.request(pay("sunrise-cafe", 2_000));
+    gate.updateLimits(limits(1_000, 1_500, 1_500));
+    expect(gate.request(pay("sunrise-cafe", 100))).toMatchObject({ status: "denied", reason: "over_daily_cap" });
+    expect(gate.remainingToday()).toBe(0);
+  });
+
+  it("stops a question that is still open when a limit is lowered under it", () => {
+    const gate = makeGate();
+    const ask = gate.request(pay("blue-door-taxi", 4_800));
+    if (ask.status !== "needs_confirmation") throw new Error("expected a question");
+    gate.updateLimits(limits(1_000, 2_000, 15_000));
+    expect(gate.confirm(ask.proposalId)).toMatchObject({ status: "denied", reason: "over_purchase_cap" });
+    expect(gate.spentToday()).toBe(0);
+  });
+
+  it("does not touch payments already made", () => {
+    const gate = makeGate();
+    gate.request(pay("sunrise-cafe", 900));
+    gate.updateLimits(limits(500, 1_000, 2_000));
+    expect(gate.history()).toHaveLength(1);
+    expect(gate.spentToday()).toBe(900);
+  });
+
+  it.each<[string, [number, number, number], RegExp]>([
+    ["a zero limit", [0, 10_000, 15_000], /above zero/],
+    ["a negative limit", [2_500, -1, 15_000], /above zero/],
+    ["a fractional limit", [2_500.5, 10_000, 15_000], /above zero/],
+    ["not-a-number", [Number.NaN, 10_000, 15_000], /above zero/],
+    ["ask-first above the payment limit", [10_001, 10_000, 15_000], /without asking/],
+    ["a payment limit above the daily limit", [2_500, 15_001, 15_000], /for one payment cannot be more/],
+    ["a payment limit past the ceiling", [2_500, 100_001, 200_000], /at most \$1,000\.00/],
+    ["a daily limit past the ceiling", [2_500, 10_000, 200_001], /at most \$2,000\.00/],
+  ])("refuses %s, and keeps the old limits", (_name, [a, b, c], message) => {
+    const gate = makeGate();
+    expect(() => gate.updateLimits(limits(a, b, c))).toThrow(message);
+    expect(gate.limits()).toMatchObject({ autoApproveUpToCents: 2_500, perPurchaseCapCents: 10_000, dailyCapCents: 15_000 });
+  });
+
+  it("throws an error the page can show as it is", () => {
+    const gate = makeGate();
+    try {
+      gate.updateLimits(limits(2_500, 100_001, 200_000));
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LimitsError);
+    }
   });
 });
 

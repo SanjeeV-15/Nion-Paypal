@@ -61,6 +61,14 @@ export class SessionStore {
     return session !== undefined && this.now() - session.lastSeen <= this.options.ttlMs;
   }
 
+  /** Start the demo over: new payments, bills and limits. The PayPal connection stays. */
+  reset(session: Session): void {
+    session.gate = this.options.createGate();
+    session.bills = sampleBills(this.now());
+    session.pending = null;
+    session.history = [];
+  }
+
   get(id: string | undefined): { session: Session; created: boolean } {
     const now = this.now();
     this.dropExpired(now);

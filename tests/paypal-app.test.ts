@@ -260,7 +260,7 @@ describe("paying through PayPal", () => {
   it("charges the saved wallet with the right details and records the capture", async () => {
     const app = await connected();
     const res = await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
-    expect(res.json.reply).toBe("Paid $12.00 to Sunrise Cafe.");
+    expect(res.json.reply).toBe("Paid $12.00 to Sunrise Cafe with PayPal.");
     expect(app.calls.charges).toHaveLength(1);
     const charge = app.calls.charges[0] as ChargeRequest;
     expect(charge).toMatchObject({
@@ -281,7 +281,7 @@ describe("paying through PayPal", () => {
     expect(ask.json.wallet.pending).not.toBeNull();
     expect(app.calls.charges).toHaveLength(0);
     const yes = await app.call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
-    expect(yes.json.reply).toBe("Paid $48.00 to Blue Door Taxi.");
+    expect(yes.json.reply).toBe("Paid $48.00 to Blue Door Taxi with PayPal.");
     expect(app.calls.charges).toHaveLength(1);
   });
 
@@ -384,5 +384,19 @@ describe("paying a bill through PayPal", () => {
     expect(done.json.wallet.spentCents).toBe(4250);
     const again = await app.call("/api/bills/pay", { billId: "phone" });
     expect(again.json.reply).toMatch(/won't pay it again/);
+  });
+});
+
+describe("starting over while connected", () => {
+  it("keeps the PayPal connection and forgets everything else", async () => {
+    const app = await connected();
+    await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    const out = await app.call("/api/reset", {});
+    expect(out.json.wallet.paypal).toEqual({ connected: true, email: "buyer@example.com" });
+    expect(out.json.wallet.spentCents).toBe(0);
+    // And it can still pay straight away, with the same saved wallet.
+    await app.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    expect(app.calls.charges).toHaveLength(2);
+    expect(app.calls.charges[1]?.vaultId).toBe(`VAULT-${app.setupId}`);
   });
 });

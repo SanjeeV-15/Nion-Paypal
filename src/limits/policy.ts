@@ -87,3 +87,40 @@ export function dayKeyFormatter(timeZone: string) {
   });
   return (ms: number) => fmt.format(ms);
 }
+
+/** The highest limits a user may set themselves. */
+export const LIMIT_CEILINGS = { perPurchaseCapCents: 100_000, dailyCapCents: 200_000 } as const;
+
+export interface Limits {
+  autoApproveUpToCents: number;
+  perPurchaseCapCents: number;
+  dailyCapCents: number;
+}
+
+export class LimitsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LimitsError";
+  }
+}
+
+/** A plain-words reason these limits are not allowed, or null if they are fine. */
+export function limitsProblem(l: Limits, currency: string): string | null {
+  const money = (cents: number) => formatMoney(cents, currency);
+  for (const v of [l.autoApproveUpToCents, l.perPurchaseCapCents, l.dailyCapCents]) {
+    if (!Number.isSafeInteger(v) || v <= 0) return "Each limit has to be an amount above zero.";
+  }
+  if (l.autoApproveUpToCents > l.perPurchaseCapCents) {
+    return "The amount paid without asking cannot be more than the limit for one payment.";
+  }
+  if (l.perPurchaseCapCents > l.dailyCapCents) {
+    return "The limit for one payment cannot be more than the daily limit.";
+  }
+  if (l.perPurchaseCapCents > LIMIT_CEILINGS.perPurchaseCapCents) {
+    return `The limit for one payment can be at most ${money(LIMIT_CEILINGS.perPurchaseCapCents)}.`;
+  }
+  if (l.dailyCapCents > LIMIT_CEILINGS.dailyCapCents) {
+    return `The daily limit can be at most ${money(LIMIT_CEILINGS.dailyCapCents)}.`;
+  }
+  return null;
+}

@@ -281,3 +281,114 @@ describe("bills over HTTP", () => {
     expect((await call("/api/chat", chat("what bills are due?"))).json.reply).toMatch(/Phone plan, \$42\.50, paid\./);
   });
 });
+
+describe("setting your own limits", () => {
+  const set = (autoApproveUpToCents: number, perPurchaseCapCents: number, dailyCapCents: number) => ({
+    autoApproveUpToCents,
+    perPurchaseCapCents,
+    dailyCapCents,
+  });
+
+  it("changes the limits and the wallet shows them", async () => {
+    const { call } = await start();
+    const out = await call("/api/limits", set(5_000, 20_000, 30_000));
+    expect(out.status).toBe(200);
+    expect(out.json.wallet.limits).toMatchObject({ autoApproveUpToCents: 5_000, perPurchaseCapCents: 20_000, dailyCapCents: 30_000 });
+    expect(out.json.wallet.remainingCents).toBe(30_000);
+    expect(out.json.wallet.ceilings).toEqual({ perPurchaseCapCents: 100_000, dailyCapCents: 200_000 });
+  });
+
+  it("makes the next payment follow the new limits", async () => {
+    const { call } = await start();
+    await call("/api/limits", set(5_000, 20_000, 30_000));
+    const paid = await call("/api/chat", chat("pay $48 to Blue Door Taxi"));
+    expect(paid.json.reply).toMatch(/Cleared to pay \$48\.00/); // no longer over the ask-first line
+    expect(paid.json.wallet.pending).toBeNull();
+  });
+
+  it("lets the rent be paid once the limit is raised to cover it", async () => {
+    const { call } = await start();
+    expect((await call("/api/bills/pay", { billId: "rent" })).json.reply).toMatch(/limit for one payment/);
+    await call("/api/limits", set(2_500, 100_000, 200_000));
+    const ask = await call("/api/bills/pay", { billId: "rent" });
+    expect(ask.json.wallet.pending).toMatchObject({ billName: "Rent", amountCents: 90_000 });
+    const done = await call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    expect(done.json.wallet.bills.find((b: { id: string }) => b.id === "rent").status).toBe("paid");
+  });
+
+  it.each([
+    ["limits past the ceiling", set(2_500, 100_001, 150_000), /at most \$1,000\.00/],
+    ["ask-first above the payment limit", set(30_000, 10_000, 15_000), /without asking/],
+    ["a zero limit", set(0, 10_000, 15_000), /above zero/],
+  ])("refuses %s with a reason, and changes nothing", async (_name, body, message) => {
+    const { call } = await start();
+    const out = await call("/api/limits", body);
+    expect(out.status).toBe(400);
+    expect(out.json.error).toMatch(message);
+    expect(out.json.wallet.limits).toMatchObject({ autoApproveUpToCents: 2_500, perPurchaseCapCents: 10_000, dailyCapCents: 15_000 });
+  });
+
+  it.each([
+    ["missing limits", {}],
+    ["limits as text", { autoApproveUpToCents: "25", perPurchaseCapCents: "100", dailyCapCents: "150" }],
+    ["only some limits", { autoApproveUpToCents: 2_500 }],
+  ])("rejects %s", async (_name, body) => {
+    const { call } = await start();
+    expect((await call("/api/limits", body)).status).toBe(400);
+  });
+
+  it("belong to one visitor only", async () => {
+    const a = await start();
+    const b = await start();
+    await a.call("/api/limits", set(5_000, 20_000, 30_000));
+    expect(((await b.call("/api/wallet")).json.wallet as WalletSnapshot).limits.dailyCapCents).toBe(15_000);
+  });
+
+  it("cannot be changed through the chat, even if asked directly", async () => {
+    const { call } = await start();
+    await call("/api/chat", chat("set my daily limit to 2000 dollars"));
+    expect(((await call("/api/wallet")).json.wallet as WalletSnapshot).limits.dailyCapCents).toBe(15_000);
+  });
+});
+
+describe("starting the demo over", () => {
+  it("clears payments, bills, limits and any open question", async () => {
+    const { call } = await start();
+    await call("/api/limits", { autoApproveUpToCents: 5_000, perPurchaseCapCents: 20_000, dailyCapCents: 30_000 });
+    await call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    await call("/api/bills/pay", { billId: "phone" }); // $42.50 is under the new $50 ask-first line, so it pays
+    const out = await call("/api/reset", {});
+    expect(out.status).toBe(200);
+    const w = out.json.wallet as WalletSnapshot;
+    expect(w.spentCents).toBe(0);
+    expect(w.activity).toEqual([]);
+    expect(w.pending).toBeNull();
+    expect(w.limits).toMatchObject({ autoApproveUpToCents: 2_500, perPurchaseCapCents: 10_000, dailyCapCents: 15_000 });
+    expect(w.bills.every((b) => b.status === "due")).toBe(true);
+  });
+
+  it("drops a question that was waiting, so a late yes pays nothing", async () => {
+    const { call } = await start();
+    const ask = await call("/api/chat", chat("pay $48 to Blue Door Taxi"));
+    const proposalId = ask.json.wallet.pending.proposalId;
+    await call("/api/reset", {});
+    expect((await call("/api/confirm", { proposalId })).status).toBe(409);
+    expect(((await call("/api/wallet")).json.wallet as WalletSnapshot).spentCents).toBe(0);
+  });
+
+  it("only resets the visitor who asked", async () => {
+    const a = await start();
+    const b = await start();
+    await a.call("/api/chat", chat("pay $12 to Sunrise Cafe"));
+    await b.call("/api/chat", chat("pay $20 to Sunrise Cafe"));
+    await a.call("/api/reset", {});
+    expect(((await a.call("/api/wallet")).json.wallet as WalletSnapshot).spentCents).toBe(0);
+    expect(((await b.call("/api/wallet")).json.wallet as WalletSnapshot).spentCents).toBe(2_000);
+  });
+
+  it("needs a JSON request, like every other action that changes things", async () => {
+    const { call } = await start();
+    const res = await call("/api/reset", "x", { headers: { "Content-Type": "text/plain" } });
+    expect(res.status).toBe(415);
+  });
+});

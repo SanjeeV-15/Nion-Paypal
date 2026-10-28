@@ -6,6 +6,7 @@ import { demoChat } from "./chat/demo.js";
 import { defaultPolicy } from "./config.js";
 import { WindowLimiter } from "./limiter.js";
 import { SpendingGate } from "./limits/gate.js";
+import { LimitsError } from "./limits/policy.js";
 import { payBill } from "./bills.js";
 import { payeeName } from "./merchants.js";
 import { PayPalError, type PayPalClient } from "./paypal/client.js";
@@ -127,6 +128,36 @@ export function createApp(options: AppOptions = {}) {
       res.json({ reply, wallet: snapshot(session) });
     }),
   );
+
+  // The user's own limits. Only the page calls this; the model has no tool for it.
+  app.post(
+    "/api/limits",
+    handler(async (req, res) => {
+      const session = res.locals.session as Session;
+      const { autoApproveUpToCents, perPurchaseCapCents, dailyCapCents } = req.body ?? {};
+      if (![autoApproveUpToCents, perPurchaseCapCents, dailyCapCents].every((v) => typeof v === "number")) {
+        res.status(400).json({ error: "Send all three limits as numbers.", wallet: snapshot(session) });
+        return;
+      }
+      try {
+        session.gate.updateLimits({ autoApproveUpToCents, perPurchaseCapCents, dailyCapCents });
+      } catch (err) {
+        if (err instanceof LimitsError) {
+          res.status(400).json({ error: err.message, wallet: snapshot(session) });
+          return;
+        }
+        throw err;
+      }
+      res.json({ wallet: snapshot(session) });
+    }),
+  );
+
+  // Start over: payments, bills, limits and chat memory. The PayPal connection stays.
+  app.post("/api/reset", (_req, res) => {
+    const session = res.locals.session as Session;
+    store.reset(session);
+    res.json({ wallet: snapshot(session) });
+  });
 
   // The Pay button on a bill. It skips the AI: the bill itself says what is owed and to whom.
   app.post(

@@ -47,6 +47,16 @@ const els = {
   approvalAmount: $("approval-amount"),
   approvalReasons: $("approval-reasons"),
   approvalTimer: $("approval-timer"),
+  approvalSource: $("approval-source"),
+  limitsCard: $("limits-card"),
+  limitsEdit: $("limits-edit"),
+  limitsForm: $("limits-form"),
+  limitsError: $("limits-error"),
+  limitsCancel: $("limits-cancel"),
+  limitAuto: $("limit-auto"),
+  limitOne: $("limit-one"),
+  limitDay: $("limit-day"),
+  reset: $("reset"),
   approve: $("approve"),
   decline: $("decline"),
 };
@@ -59,6 +69,9 @@ const state = {
   wallet: null,
   interim: null,
   listenTimer: null,
+  thinkingEl: null,
+  lastProposal: null,
+  seen: { bills: new Map(), activity: new Set(), ready: false },
   flash: null, // a one-off message, e.g. the result of connecting PayPal
 };
 
@@ -145,7 +158,7 @@ function setPhase(phase) {
   els.send.disabled = phase === "thinking";
   els.approve.disabled = phase === "thinking";
   els.decline.disabled = phase === "thinking";
-  els.bills.toggleAttribute("inert", phase === "thinking");
+  for (const el of [els.bills, els.limitsCard, els.reset]) el.toggleAttribute("inert", phase === "thinking");
 }
 
 function setHint(text) {
@@ -160,6 +173,23 @@ function addMessage(role, text, extra) {
   els.log.append(li);
   els.log.scrollTop = els.log.scrollHeight;
   return li;
+}
+
+function showThinking() {
+  clearThinking();
+  const li = document.createElement("li");
+  li.className = "msg nion thinking";
+  li.setAttribute("role", "status");
+  li.setAttribute("aria-label", "Thinking");
+  for (let i = 0; i < 3; i++) li.append(document.createElement("i"));
+  els.log.append(li);
+  els.log.scrollTop = els.log.scrollHeight;
+  state.thinkingEl = li;
+}
+
+function clearThinking() {
+  state.thinkingEl?.remove();
+  state.thinkingEl = null;
 }
 
 function showInterim(text) {
@@ -263,15 +293,24 @@ function renderWallet(wallet) {
         span(m(a.amountCents), "amount"),
         span(`${statusText[a.status]} · ${time}`, "meta"),
       );
+      // The reference PayPal gave this payment, so it can be found in PayPal's own records.
+      if (wallet.mode === "sandbox" && a.ref) {
+        const ref = span(`PayPal capture ${a.ref}`, "meta ref");
+        ref.title = "PayPal's own ID for this payment";
+        item.append(ref);
+      }
       item.className = a.status;
+      if (state.seen.ready && !state.seen.activity.has(a.id)) item.classList.add("flash");
       return item;
     }),
   );
+  state.seen.activity = new Set(wallet.activity.map((a) => a.id));
   els.activityEmpty.hidden = wallet.activity.length > 0;
 
   renderBills(wallet);
   renderPayPal(wallet.paypal);
   renderApproval(wallet.pending);
+  state.seen.ready = true;
 }
 
 function dueText(bill) {
@@ -297,8 +336,13 @@ function renderBills(wallet) {
         span(m(bill.amountCents), "amount"),
         span(`${bill.payee} · ${bill.status === "paid" ? "paid" : dueText(bill)}`, "bill-meta"),
       );
-      item.className = status;
-      if (bill.status === "due") {
+      const waiting = wallet.pending?.billId === bill.id;
+      item.className = waiting ? "waiting" : status;
+      const before = state.seen.bills.get(bill.id);
+      if (before !== undefined && before !== bill.status) item.classList.add("flash");
+      if (waiting) {
+        item.append(span("Waiting for your yes", "bill-status"));
+      } else if (bill.status === "due") {
         const pay = document.createElement("button");
         pay.type = "button";
         pay.className = "btn small bill-pay";
@@ -314,6 +358,7 @@ function renderBills(wallet) {
       return item;
     }),
   );
+  state.seen.bills = new Map(wallet.bills.map((b) => [b.id, b.status]));
 }
 
 function payBillButton(bill) {
@@ -368,6 +413,7 @@ function renderApproval(pending) {
   clearInterval(approvalTimer);
   if (!pending) {
     els.approval.hidden = true;
+    state.lastProposal = null;
     return;
   }
   const { limits } = state.wallet;
@@ -382,8 +428,17 @@ function renderApproval(pending) {
       ),
     ),
   );
+  els.approvalSource.textContent =
+    state.wallet.mode === "sandbox"
+      ? "Paid from your PayPal wallet (sandbox, test money)."
+      : "Demo: simulated, no money moves.";
   els.approval.hidden = false;
   els.approval.dataset.proposalId = pending.proposalId;
+  if (state.lastProposal !== pending.proposalId) {
+    state.lastProposal = pending.proposalId;
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    els.approval.scrollIntoView({ block: "nearest", behavior: calm ? "auto" : "smooth" });
+  }
 
   const tick = () => {
     const left = Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 1000));
@@ -443,14 +498,17 @@ async function runTurn(request, userText) {
   clearInterim();
   if (userText) addMessage("you", userText);
   setPhase("thinking");
+  showThinking();
 
   let reply = null;
   try {
     const data = await request();
+    clearThinking();
     renderWallet(data.wallet);
     reply = data.reply;
     addMessage("nion", reply);
   } catch (err) {
+    clearThinking();
     if (err.wallet) renderWallet(err.wallet);
     addMessage("nion", err.message, "error");
   }
@@ -543,6 +601,77 @@ els.form.addEventListener("submit", (event) => {
   const text = els.text.value;
   els.text.value = "";
   send(text);
+});
+
+// ---- limits and start over ---------------------------------------------------
+
+function openLimits() {
+  const { limits, ceilings } = state.wallet;
+  els.limitAuto.value = limits.autoApproveUpToCents / 100;
+  els.limitOne.value = limits.perPurchaseCapCents / 100;
+  els.limitDay.value = limits.dailyCapCents / 100;
+  els.limitAuto.max = ceilings.perPurchaseCapCents / 100;
+  els.limitOne.max = ceilings.perPurchaseCapCents / 100;
+  els.limitDay.max = ceilings.dailyCapCents / 100;
+  els.limitsError.textContent = "";
+  els.limitsForm.hidden = false;
+  els.rules.hidden = true;
+  els.limitsEdit.hidden = true;
+  els.limitAuto.focus();
+}
+
+function closeLimits() {
+  els.limitsForm.hidden = true;
+  els.rules.hidden = false;
+  els.limitsEdit.hidden = false;
+}
+
+els.limitsEdit.addEventListener("click", openLimits);
+els.limitsCancel.addEventListener("click", closeLimits);
+els.limitsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const cents = (input) => Math.round(Number(input.value) * 100);
+  try {
+    const { wallet } = await api("/api/limits", {
+      autoApproveUpToCents: cents(els.limitAuto),
+      perPurchaseCapCents: cents(els.limitOne),
+      dailyCapCents: cents(els.limitDay),
+    });
+    renderWallet(wallet);
+    closeLimits();
+    setFlash("Your limits are saved. Only you can change them; the AI cannot.", "info");
+  } catch (err) {
+    els.limitsError.textContent = err.message;
+  }
+});
+
+let resetTimer = null;
+function disarmReset() {
+  clearTimeout(resetTimer);
+  delete els.reset.dataset.armed;
+  els.reset.textContent = "Start over";
+}
+
+els.reset.addEventListener("click", async () => {
+  if (!els.reset.dataset.armed) {
+    els.reset.dataset.armed = "1";
+    els.reset.textContent = "Click again to clear everything";
+    resetTimer = setTimeout(disarmReset, 4000);
+    return;
+  }
+  disarmReset();
+  endConversation();
+  try {
+    const { wallet } = await api("/api/reset", {});
+    state.seen = { bills: new Map(), activity: new Set(), ready: false };
+    els.log.replaceChildren();
+    showWelcome();
+    closeLimits();
+    renderWallet(wallet);
+    setFlash("Started over. Your PayPal connection is still there.", "info");
+  } catch (err) {
+    setFlash(err.message, "problem");
+  }
 });
 
 // ---- voice ---------------------------------------------------------------

@@ -1,5 +1,5 @@
 import type { EntryStatus } from "./limits/gate.js";
-import type { ConfirmReason } from "./limits/policy.js";
+import { LIMIT_CEILINGS, type ConfirmReason } from "./limits/policy.js";
 import { daysUntil, type BillStatus } from "./bills.js";
 import { MERCHANTS, payeeName } from "./merchants.js";
 import type { Session } from "./sessions.js";
@@ -7,6 +7,8 @@ import type { Session } from "./sessions.js";
 export interface WalletSnapshot {
   mode: "demo" | "sandbox";
   limits: ReturnType<Session["gate"]["limits"]>;
+  /** The highest limits the user may set. */
+  ceilings: { perPurchaseCapCents: number; dailyCapCents: number };
   spentCents: number;
   remainingCents: number;
   merchants: { id: string; name: string; blurb: string }[];
@@ -35,7 +37,8 @@ export interface WalletSnapshot {
     merchant: string;
     amountCents: number;
     reasons: ConfirmReason[];
-    /** Name of the bill this payment is for, if it is one. */
+    /** The bill this payment is for, if it is one. */
+    billId?: string;
     billName?: string;
   } | null;
 }
@@ -47,6 +50,7 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
   return {
     mode,
     limits: gate.limits(),
+    ceilings: { ...LIMIT_CEILINGS },
     spentCents: gate.spentToday(),
     remainingCents: gate.remainingToday(),
     merchants: MERCHANTS.map((m) => ({ ...m })),
@@ -85,7 +89,10 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
           amountCents: session.pending.amountCents,
           reasons: session.pending.reasons,
           ...(session.pending.billId
-            ? { billName: session.bills.find((b) => b.id === session.pending?.billId)?.name }
+            ? {
+                billId: session.pending.billId,
+                billName: session.bills.find((b) => b.id === session.pending?.billId)?.name,
+              }
             : {}),
         }
       : null,

@@ -4,8 +4,11 @@ import {
   formatMoney,
   normalizeRequest,
   resolvePolicy,
+  limitsProblem,
+  LimitsError,
   type ConfirmReason,
   type DenyReason,
+  type Limits,
   type PaymentRequest,
   type Policy,
   type ResolvedPolicy,
@@ -207,6 +210,19 @@ export class SpendingGate {
   limits() {
     const { currency, autoApproveUpToCents, perPurchaseCapCents, dailyCapCents } = this.policy;
     return { currency, autoApproveUpToCents, perPurchaseCapCents, dailyCapCents };
+  }
+
+  /**
+   * The user changes their own limits. Only the page can call this, never the
+   * model. A payment already waiting is checked against the new limits when it
+   * is confirmed, so lowering a limit also stops a question that is still open.
+   */
+  updateLimits(next: Limits): void {
+    const problem = limitsProblem(next, this.policy.currency);
+    if (problem) throw new LimitsError(problem);
+    this.policy.autoApproveUpToCents = next.autoApproveUpToCents;
+    this.policy.perPurchaseCapCents = next.perPurchaseCapCents;
+    this.policy.dailyCapCents = next.dailyCapCents;
   }
 
   spentToday(): number {

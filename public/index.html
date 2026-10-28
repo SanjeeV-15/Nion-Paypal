@@ -33,6 +33,7 @@
           <p class="approval-title" id="approval-title">Waiting for your yes</p>
           <p class="approval-amount" id="approval-amount"></p>
           <ul class="approval-reasons" id="approval-reasons"></ul>
+          <p class="approval-source" id="approval-source"></p>
           <p class="approval-meta">
             <span id="approval-timer"></span>
             <span id="approval-voice-hint">You can also say yes or no.</span>
@@ -85,6 +86,15 @@
             <button type="button" class="btn primary" id="paypal-connect">Connect PayPal</button>
             <button type="button" class="btn" id="paypal-disconnect" hidden>Disconnect</button>
           </div>
+          <details class="where">
+            <summary>Where PayPal is used</summary>
+            <ul>
+              <li><strong>Connect.</strong> PayPal's Vault saves your wallet after you approve on PayPal's own page. Nothing is charged.</li>
+              <li><strong>Pay.</strong> PayPal's Orders API charges that saved wallet when you or Claude ask. Every payment carries a key, so a retry can't charge twice.</li>
+              <li><strong>Receipts.</strong> The PayPal reference under each payment is PayPal's own ID for it.</li>
+              <li><strong>Sandbox.</strong> Test money only.</li>
+            </ul>
+          </details>
         </section>
 
         <section class="card">
@@ -101,9 +111,29 @@
           <ol class="bills" id="bills"></ol>
         </section>
 
-        <section class="card">
-          <h2>Your limits</h2>
+        <section class="card" id="limits-card">
+          <div class="card-head">
+            <h2>Your limits</h2>
+            <button type="button" class="link" id="limits-edit">Edit</button>
+          </div>
           <ul class="rules" id="rules"></ul>
+          <form class="limits-form" id="limits-form" hidden autocomplete="off">
+            <label>Ask me first above
+              <span class="money"><span aria-hidden="true">$</span><input id="limit-auto" type="number" min="1" step="1" inputmode="numeric" required /></span>
+            </label>
+            <label>Most in one payment
+              <span class="money"><span aria-hidden="true">$</span><input id="limit-one" type="number" min="1" step="1" inputmode="numeric" required /></span>
+            </label>
+            <label>Most in a day
+              <span class="money"><span aria-hidden="true">$</span><input id="limit-day" type="number" min="1" step="1" inputmode="numeric" required /></span>
+            </label>
+            <p class="form-error" id="limits-error" role="alert"></p>
+            <div class="paypal-actions">
+              <button type="submit" class="btn primary small">Save limits</button>
+              <button type="button" class="btn small" id="limits-cancel">Cancel</button>
+            </div>
+            <p class="muted">Only you can change these. The AI cannot.</p>
+          </form>
         </section>
 
         <section class="card">
@@ -115,6 +145,12 @@
           <h2>Activity</h2>
           <ol class="activity" id="activity"></ol>
           <p class="muted" id="activity-empty">Nothing yet.</p>
+        </section>
+
+        <section class="card">
+          <h2>Demo</h2>
+          <p class="muted reset-note">Clears payments, bills, limits and the chat. Your PayPal connection stays. Anything already paid in the PayPal sandbox stays there.</p>
+          <button type="button" class="btn small" id="reset">Start over</button>
         </section>
       </aside>
     </main>

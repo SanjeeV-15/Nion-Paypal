@@ -162,6 +162,11 @@ describe("what the model is told about payments", () => {
     expect(state).toContain("$7.00 to Blue Door Taxi (in progress)");
   });
 
+  it("tells the model it cannot change the user's limits, and where the user can", () => {
+    expect(SYSTEM_PROMPT).toMatch(/cannot change the user's limits/);
+    expect(SYSTEM_PROMPT).toMatch(/Limits card/);
+  });
+
   it("tells the model that the payment system wrote some of its earlier replies", () => {
     expect(SYSTEM_PROMPT).toMatch(/written by the payment system itself/);
     expect(SYSTEM_PROMPT).toMatch(/never retract them/);

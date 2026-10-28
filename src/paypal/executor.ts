@@ -31,5 +31,5 @@ export class PayPalExecutor implements Executor {
     }
   };
 
-  receipt: Executor["receipt"] = (summary) => `Paid ${summary}.`;
+  receipt: Executor["receipt"] = (summary) => `Paid ${summary} with PayPal.`;
 }
