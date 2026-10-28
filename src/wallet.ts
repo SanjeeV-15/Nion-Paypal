@@ -1,3 +1,4 @@
+import type { EntryStatus } from "./limits/gate.js";
 import type { ConfirmReason } from "./limits/policy.js";
 import { MERCHANTS } from "./merchants.js";
 import type { Session } from "./sessions.js";
@@ -12,10 +13,12 @@ export interface WalletSnapshot {
     id: string;
     merchant: string;
     amountCents: number;
-    status: "pending" | "completed" | "failed";
+    status: EntryStatus;
     at: number;
     ref?: string;
   }[];
+  /** Null in demo mode, where there is no PayPal to connect. */
+  paypal: { connected: boolean; email?: string } | null;
   pending: {
     proposalId: string;
     expiresAt: number;
@@ -47,6 +50,13 @@ export function walletSnapshot(session: Session, mode: WalletSnapshot["mode"]): 
         ...(e.ref ? { ref: e.ref } : {}),
       }))
       .reverse(),
+    paypal:
+      mode === "sandbox"
+        ? {
+            connected: session.paypal !== null,
+            ...(session.paypal?.email ? { email: session.paypal.email } : {}),
+          }
+        : null,
     pending: session.pending
       ? {
           proposalId: session.pending.proposalId,

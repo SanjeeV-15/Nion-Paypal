@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import type { Express } from "express";
+import { createApp, type AppOptions } from "../src/app.js";
 
 export interface TestServer {
   base: string;
@@ -27,4 +28,44 @@ export function listen(app: Express): Promise<TestServer> {
       });
     });
   });
+}
+
+const apps: TestServer[] = [];
+
+/** Starts the real app and returns a tiny browser that keeps its session cookie. */
+export async function startApp(options?: AppOptions) {
+  const server = await listen(createApp(options));
+  apps.push(server);
+  const { base } = server;
+
+  let cookie = "";
+  async function call(path: string, body?: unknown, init: RequestInit = {}) {
+    const res = await fetch(base + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...init,
+    });
+    const set = res.headers.get("set-cookie");
+    if (set) cookie = set.split(";")[0] ?? "";
+    const text = await res.text();
+    return { status: res.status, headers: res.headers, json: parseJson(text) };
+  }
+  return { call, base };
+}
+
+export async function stopApps(): Promise<void> {
+  await Promise.all(apps.splice(0).map((s) => s.close()));
+}
+
+// Redirects carry a plain-text body, so anything that is not JSON becomes null.
+function parseJson(text: string) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
 }

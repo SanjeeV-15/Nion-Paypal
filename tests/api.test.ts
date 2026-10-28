@@ -1,37 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createApp, type AppOptions } from "../src/app.js";
-import { listen, type TestServer } from "./helpers.js";
+import type { AppOptions } from "../src/app.js";
+import { startApp as start, stopApps } from "./helpers.js";
 import type { WalletSnapshot } from "../src/wallet.js";
 
-const servers: TestServer[] = [];
-afterEach(async () => {
-  await Promise.all(servers.splice(0).map((s) => s.close()));
-});
-
-async function start(options?: AppOptions) {
-  const server = await listen(createApp(options));
-  servers.push(server);
-  const { base } = server;
-
-  // A tiny browser: keeps the session cookie between calls.
-  let cookie = "";
-  async function call(path: string, body?: unknown, init: RequestInit = {}) {
-    const res = await fetch(base + path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: {
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        ...(cookie ? { Cookie: cookie } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      ...init,
-    });
-    const set = res.headers.get("set-cookie");
-    if (set) cookie = set.split(";")[0] ?? "";
-    const text = await res.text();
-    return { status: res.status, headers: res.headers, json: text ? JSON.parse(text) : null };
-  }
-  return { call, base, cookieOf: () => cookie };
-}
+afterEach(stopApps);
 
 const chat = (message: string) => ({ message });
 
@@ -220,7 +192,8 @@ describe("a payment that fails", () => {
   it("gives the money back and says nothing was charged", async () => {
     const { call } = await start({
       executor: {
-        note: "",
+        ready: () => null,
+        receipt: (summary) => `Paid ${summary}.`,
         pay: async () => {
           throw new Error("PayPal said no");
         },

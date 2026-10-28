@@ -99,6 +99,8 @@ export interface ChargeRequest {
   description: string;
   /** Our own id for the payment; also the idempotency key. */
   reference: string;
+  /** Echoed back by PayPal, so a payment can be traced to its merchant. */
+  customId?: string;
 }
 
 /** Statuses that mean the money was taken or is on its way. */
@@ -185,6 +187,7 @@ export class PayPalClient {
         purchase_units: [
           {
             reference_id: req.reference.slice(0, 256),
+            ...(req.customId ? { custom_id: req.customId.slice(0, 255) } : {}),
             description: req.description.slice(0, 127),
             amount: { currency_code: req.currency, value },
           },

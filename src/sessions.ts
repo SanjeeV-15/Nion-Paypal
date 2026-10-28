@@ -10,10 +10,20 @@ export interface PendingQuestion {
   reasons: ConfirmReason[];
 }
 
+export interface ConnectedWallet {
+  vaultId: string;
+  customerId?: string;
+  email?: string;
+}
+
 export interface Session {
   id: string;
   gate: SpendingGate;
   pending: PendingQuestion | null;
+  /** The buyer's saved PayPal wallet, once they approved it. */
+  paypal: ConnectedWallet | null;
+  /** The setup token this visitor is in the middle of approving. */
+  paypalSetupId: string | null;
   lastSeen: number;
 }
 
@@ -59,6 +69,8 @@ export class SessionStore {
       id: randomBytes(16).toString("hex"),
       gate: this.options.createGate(),
       pending: null,
+      paypal: null,
+      paypalSetupId: null,
       lastSeen: now,
     };
     this.sessions.set(session.id, session);

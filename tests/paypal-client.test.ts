@@ -151,6 +151,12 @@ describe("charging a saved wallet", () => {
     });
   });
 
+  it("passes the merchant id along as custom_id when given", async () => {
+    const { client, api } = setup([token(), completedOrder()]);
+    await client.charge({ ...charge, customId: "sunrise-cafe" });
+    expect(api()[0]?.body).toMatchObject({ purchase_units: [{ custom_id: "sunrise-cafe" }] });
+  });
+
   it("returns the capture when PayPal completes the order at once", async () => {
     const { client } = setup([token(), completedOrder()]);
     expect(await client.charge(charge)).toEqual({ orderId: "ORDER1", captureId: "CAP1", status: "COMPLETED" });

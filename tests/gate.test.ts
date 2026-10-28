@@ -305,6 +305,59 @@ describe("settling reservations", () => {
   });
 });
 
+describe("unconfirmed payments", () => {
+  function reserved(gate: SpendingGate, merchant = "sunrise-cafe", cents = 900) {
+    const out = gate.request(pay(merchant, cents));
+    if (out.status !== "approved") throw new Error("expected approval");
+    return out.reservationId;
+  }
+
+  it("keeps counting against the daily cap", () => {
+    const gate = makeGate({ dailyCapCents: 3_000, perPurchaseCapCents: 3_000 });
+    gate.flagUnconfirmed(reserved(gate, "sunrise-cafe", 2_500));
+    expect(gate.spentToday()).toBe(2_500);
+    expect(gate.request(pay("blue-door-taxi", 600))).toMatchObject({
+      status: "denied",
+      reason: "over_daily_cap",
+    });
+  });
+
+  it("is still treated as a payment when looking for duplicates", () => {
+    const gate = makeGate();
+    gate.flagUnconfirmed(reserved(gate));
+    expect(gate.request(pay("sunrise-cafe", 900)).status).toBe("needs_confirmation");
+  });
+
+  it("can be settled later, once someone has checked", () => {
+    const gate = makeGate();
+    const id = reserved(gate);
+    gate.flagUnconfirmed(id);
+    gate.complete(id, "CAP-1");
+    expect(gate.history()[0]).toMatchObject({ status: "completed", ref: "CAP-1" });
+
+    const other = reserved(gate, "blue-door-taxi", 500);
+    gate.flagUnconfirmed(other);
+    gate.fail(other);
+    expect(gate.spentToday()).toBe(900);
+  });
+
+  it("only flags a payment that is still pending", () => {
+    const gate = makeGate();
+    const id = reserved(gate);
+    gate.complete(id, "CAP-1");
+    expect(() => gate.flagUnconfirmed(id)).toThrow(/already completed/);
+    expect(() => gate.flagUnconfirmed("nope")).toThrow(/unknown reservation/);
+  });
+});
+
+describe("merchant names", () => {
+  it("uses the display name when one is given and the id otherwise", () => {
+    const named = new SpendingGate(policy, { now: () => clock, merchantName: () => "Sunrise Cafe" });
+    expect(named.merchantLabel("sunrise-cafe")).toBe("Sunrise Cafe");
+    expect(makeGate().merchantLabel("sunrise-cafe")).toBe("sunrise-cafe");
+  });
+});
+
 describe("policy validation", () => {
   it.each<[string, Partial<Policy>, RegExp]>([
     ["a bad currency", { currency: "dollars" }, /3-letter/],

@@ -13,7 +13,15 @@ const els = {
   hint: $("hint"),
   speak: $("speak-replies"),
   badge: $("mode-badge"),
-  banner: $("demo-banner"),
+  banner: $("mode-banner"),
+  notice: $("notice"),
+  noticeText: $("notice-text"),
+  noticeAction: $("notice-action"),
+  noticeDismiss: $("notice-dismiss"),
+  paypalCard: $("paypal-card"),
+  paypalStatus: $("paypal-status"),
+  paypalConnect: $("paypal-connect"),
+  paypalDisconnect: $("paypal-disconnect"),
   spent: $("spent"),
   meter: $("meter"),
   meterFill: $("meter-fill"),
@@ -37,6 +45,7 @@ const state = {
   silentRuns: 0,
   wallet: null,
   interim: null,
+  flash: null, // a one-off message, e.g. the result of connecting PayPal
 };
 
 const PHASE_TEXT = {
@@ -155,8 +164,13 @@ function renderWallet(wallet) {
   const { limits } = wallet;
   const m = (cents) => money(cents, limits.currency);
 
-  els.badge.hidden = wallet.mode !== "demo";
-  els.banner.hidden = wallet.mode !== "demo";
+  const sandbox = wallet.mode === "sandbox";
+  els.badge.hidden = false;
+  els.badge.textContent = sandbox ? "PayPal sandbox" : "Demo mode";
+  els.banner.hidden = false;
+  els.banner.textContent = sandbox
+    ? "PayPal sandbox. These are real PayPal calls, but with test money only."
+    : "Demo mode. PayPal is not connected yet, so no money moves.";
 
   els.spent.textContent = `${m(wallet.spentCents)} spent today`;
   const pct = Math.min(100, Math.round((wallet.spentCents / limits.dailyCapCents) * 100));
@@ -182,6 +196,7 @@ function renderWallet(wallet) {
   const statusText = {
     completed: wallet.mode === "demo" ? "Paid (demo)" : "Paid",
     pending: "Processing",
+    unconfirmed: "Unconfirmed, check PayPal",
     failed: "Failed, not charged",
   };
   els.activity.replaceChildren(
@@ -198,7 +213,50 @@ function renderWallet(wallet) {
   );
   els.activityEmpty.hidden = wallet.activity.length > 0;
 
+  renderPayPal(wallet.paypal);
   renderApproval(wallet.pending);
+}
+
+function renderPayPal(paypal) {
+  els.paypalCard.hidden = !paypal;
+  if (!paypal) {
+    updateNotice();
+    return;
+  }
+  els.paypalStatus.textContent = paypal.connected
+    ? `Connected${paypal.email ? ` as ${paypal.email}` : ""}. I can pay merchants within your limits.`
+    : "Not connected. Connect the sandbox buyer account once, and I can pay for you.";
+  els.paypalConnect.hidden = paypal.connected;
+  els.paypalDisconnect.hidden = !paypal.connected;
+  updateNotice();
+}
+
+function showNotice(text, { kind, action, dismissible } = {}) {
+  els.notice.hidden = false;
+  els.notice.dataset.kind = kind || "info";
+  els.noticeText.textContent = text;
+  els.noticeAction.hidden = !action;
+  els.noticeAction.textContent = action || "";
+  els.noticeDismiss.hidden = !dismissible;
+}
+
+// A one-off message wins; otherwise nudge towards connecting PayPal when that is all that is missing.
+function updateNotice() {
+  if (state.flash) {
+    showNotice(state.flash.text, { kind: state.flash.kind, dismissible: true });
+    return;
+  }
+  const paypal = state.wallet?.paypal;
+  if (paypal && !paypal.connected) {
+    showNotice("Connect PayPal once so I can pay for you within your limits.", { action: "Connect PayPal" });
+    return;
+  }
+  els.notice.hidden = true;
+}
+
+function setFlash(text, kind) {
+  state.flash = { text, kind };
+  updateNotice();
 }
 
 let approvalTimer = null;
@@ -322,6 +380,43 @@ function answerPending(path, label) {
   runTurn(() => api(path, { proposalId }), label);
 }
 
+async function connectPayPal() {
+  els.paypalConnect.disabled = true;
+  els.noticeAction.disabled = true;
+  try {
+    const { approveUrl } = await api("/api/paypal/connect", {});
+    const host = new URL(approveUrl).hostname;
+    if (!(host === "paypal.com" || host.endsWith(".paypal.com"))) throw new Error("That link did not look right, so I did not open it.");
+    window.location.assign(approveUrl);
+  } catch (err) {
+    els.paypalConnect.disabled = false;
+    els.noticeAction.disabled = false;
+    if (err.wallet) renderWallet(err.wallet);
+    setFlash(err.message, "problem");
+  }
+}
+
+async function disconnectPayPal() {
+  els.paypalDisconnect.disabled = true;
+  try {
+    renderWallet((await api("/api/paypal/disconnect", {})).wallet);
+    setFlash("PayPal is disconnected. I can't pay for you until you connect it again.", "info");
+  } catch (err) {
+    if (err.wallet) renderWallet(err.wallet);
+    setFlash(err.message, "problem");
+  } finally {
+    els.paypalDisconnect.disabled = false;
+  }
+}
+
+els.paypalConnect.addEventListener("click", connectPayPal);
+els.noticeAction.addEventListener("click", connectPayPal);
+els.paypalDisconnect.addEventListener("click", disconnectPayPal);
+els.noticeDismiss.addEventListener("click", () => {
+  state.flash = null;
+  updateNotice();
+});
+
 els.approve.addEventListener("click", () => answerPending("/api/confirm", "Confirm"));
 els.decline.addEventListener("click", () => answerPending("/api/cancel", "Cancel"));
 
@@ -408,4 +503,18 @@ if (!canListen) {
 }
 setPhase("idle");
 showWelcome();
+
+// PayPal sends the buyer back here with ?paypal=connected, cancelled or failed.
+const FLASH = {
+  connected: ["PayPal is connected. I can pay for you now, within your limits.", "info"],
+  cancelled: ["You cancelled the PayPal connection. Nothing was saved.", "info"],
+  failed: ["I couldn't finish connecting PayPal. Please try Connect PayPal again.", "problem"],
+};
+const returned = new URLSearchParams(window.location.search).get("paypal");
+if (returned && Object.hasOwn(FLASH, returned)) {
+  const [text, kind] = FLASH[returned];
+  state.flash = { text, kind };
+}
+if (returned) window.history.replaceState(null, "", window.location.pathname);
+
 refreshWallet();

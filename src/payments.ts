@@ -1,19 +1,31 @@
 import type { LedgerEntry, Outcome } from "./limits/gate.js";
+import { formatMoney } from "./limits/policy.js";
 import type { Session } from "./sessions.js";
+
+/** Thrown when we cannot tell whether the money moved. */
+export class PaymentUncertainError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "PaymentUncertainError";
+  }
+}
 
 /** Moves the money for a payment the gate has already cleared. */
 export interface Executor {
-  /** Returns a reference for the completed payment, or throws. */
-  pay(entry: LedgerEntry): Promise<string>;
-  /** Added to the spoken receipt, e.g. to say nothing really moved. */
-  readonly note: string;
+  /** Returns a reference for the completed payment. Throws if it failed, or PaymentUncertainError if unsure. */
+  pay(session: Session, entry: LedgerEntry): Promise<string>;
+  /** A reason payments cannot start yet, or null when they can. */
+  ready(session: Session): string | null;
+  /** What to say once a payment went through; summary reads like "$12.00 to Sunrise Cafe". */
+  receipt(summary: string): string;
 }
 
 export const demoExecutor: Executor = {
-  async pay(entry) {
+  async pay(_session, entry) {
     return `demo-${entry.id.slice(0, 8)}`;
   },
-  note: " This is a demo, so no money actually moved.",
+  ready: () => null,
+  receipt: (summary) => `Cleared to pay ${summary}. This is a demo, so no money actually moved.`,
 };
 
 /** Turns what the gate decided into a settled payment, a stored question, or a refusal. */
@@ -39,14 +51,27 @@ export async function settle(session: Session, out: Outcome, executor: Executor)
   session.pending = null;
   const entry = gate.history().find((e) => e.id === out.reservationId);
   if (!entry) throw new Error(`reservation ${out.reservationId} vanished`);
+  const summary = `${formatMoney(entry.request.amountCents, entry.request.currency)} to ${gate.merchantLabel(entry.request.merchantId)}`;
+
+  let ref: string;
   try {
-    gate.complete(out.reservationId, await executor.pay(entry));
+    ref = await executor.pay(session, entry);
   } catch (err) {
+    if (err instanceof PaymentUncertainError) {
+      // Never hand the money back when we do not know where it went.
+      gate.flagUnconfirmed(out.reservationId);
+      console.error("payment unconfirmed:", err.message);
+      return (
+        `I couldn't confirm whether the ${summary} payment went through. ` +
+        "I'm keeping it counted against your daily limit until you check PayPal."
+      );
+    }
     gate.fail(out.reservationId);
-    console.error("payment failed", err);
+    console.error("payment failed:", err instanceof Error ? err.message : err);
     return "The payment did not go through, and nothing was charged.";
   }
-  return `${out.message}${executor.note}`;
+  gate.complete(out.reservationId, ref);
+  return executor.receipt(summary);
 }
 
 /**

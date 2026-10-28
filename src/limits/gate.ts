@@ -28,7 +28,7 @@ export type Outcome =
     }
   | { status: "denied"; reason: DenyReason; message: string };
 
-export type EntryStatus = "pending" | "completed" | "failed";
+export type EntryStatus = "pending" | "unconfirmed" | "completed" | "failed";
 
 export interface LedgerEntry {
   id: string;
@@ -182,6 +182,23 @@ export class SpendingGate {
     this.settle(reservationId, "completed").ref = ref;
   }
 
+  /**
+   * We could not tell whether the money moved. It stays counted against the
+   * daily limit until someone checks, so a doubtful payment never frees budget.
+   */
+  flagUnconfirmed(reservationId: string): void {
+    const entry = this.entries.get(reservationId);
+    if (!entry) throw new Error(`unknown reservation ${reservationId}`);
+    if (entry.status !== "pending") {
+      throw new Error(`reservation ${reservationId} is already ${entry.status}`);
+    }
+    entry.status = "unconfirmed";
+  }
+
+  merchantLabel(merchantId: string): string {
+    return this.merchantName(merchantId);
+  }
+
   /** The payment did not happen; give the money back to the daily budget. */
   fail(reservationId: string): void {
     this.settle(reservationId, "failed");
@@ -222,7 +239,7 @@ export class SpendingGate {
   private settle(reservationId: string, status: "completed" | "failed"): LedgerEntry {
     const entry = this.entries.get(reservationId);
     if (!entry) throw new Error(`unknown reservation ${reservationId}`);
-    if (entry.status !== "pending") {
+    if (entry.status !== "pending" && entry.status !== "unconfirmed") {
       throw new Error(`reservation ${reservationId} is already ${entry.status}`);
     }
     entry.status = status;

@@ -14,15 +14,19 @@
   <body>
     <header class="top">
       <h1>Nion Pay</h1>
-      <span class="badge" id="mode-badge" hidden>Demo mode</span>
+      <span class="badge" id="mode-badge" hidden></span>
     </header>
 
-    <p class="banner" id="demo-banner" hidden>
-      Demo mode. PayPal is not connected yet, so no money moves.
-    </p>
+    <p class="banner" id="mode-banner" hidden></p>
 
     <main class="layout">
       <section class="talk" aria-label="Conversation">
+        <div class="notice" id="notice" role="status" hidden>
+          <span id="notice-text"></span>
+          <button type="button" class="btn small primary" id="notice-action" hidden></button>
+          <button type="button" class="btn small" id="notice-dismiss" hidden>Dismiss</button>
+        </div>
+
         <ol class="log" id="log" aria-live="polite"></ol>
 
         <div class="approval" id="approval" hidden role="alertdialog" aria-labelledby="approval-title">
@@ -68,6 +72,15 @@
       </section>
 
       <aside class="wallet" aria-label="Wallet">
+        <section class="card" id="paypal-card" hidden>
+          <h2>PayPal</h2>
+          <p class="paypal-status" id="paypal-status"></p>
+          <div class="paypal-actions">
+            <button type="button" class="btn primary" id="paypal-connect">Connect PayPal</button>
+            <button type="button" class="btn" id="paypal-disconnect" hidden>Disconnect</button>
+          </div>
+        </section>
+
         <section class="card">
           <h2>Today</h2>
           <p class="big" id="spent">&nbsp;</p>

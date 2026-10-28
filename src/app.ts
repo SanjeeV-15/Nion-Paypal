@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -5,9 +6,11 @@ import { demoChat } from "./chat/demo.js";
 import { defaultPolicy } from "./config.js";
 import { SpendingGate } from "./limits/gate.js";
 import { MERCHANTS } from "./merchants.js";
+import { PayPalError, type PayPalClient } from "./paypal/client.js";
+import { PayPalExecutor } from "./paypal/executor.js";
 import { answerPending, demoExecutor, type Executor } from "./payments.js";
 import { SessionStore, type Session } from "./sessions.js";
-import { walletSnapshot, type WalletSnapshot } from "./wallet.js";
+import { walletSnapshot } from "./wallet.js";
 
 const COOKIE = "nion_sid";
 const MAX_MESSAGE_CHARS = 500;
@@ -19,7 +22,10 @@ export interface AppOptions {
   store?: SessionStore;
   chat?: ChatHandler;
   executor?: Executor;
-  mode?: WalletSnapshot["mode"];
+  /** When given, payments go to the PayPal sandbox; otherwise the app runs in demo mode. */
+  paypal?: PayPalClient;
+  /** Where PayPal sends the buyer back to. Always taken from config, never from the request. */
+  publicBaseUrl?: string;
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -33,8 +39,11 @@ export function createApp(options: AppOptions = {}) {
         new SpendingGate(defaultPolicy(), { merchantName: (id) => names.get(id) ?? id }),
     });
   const chat = options.chat ?? demoChat;
-  const executor = options.executor ?? demoExecutor;
-  const mode = options.mode ?? "demo";
+  const paypal = options.paypal;
+  const executor = options.executor ?? (paypal ? new PayPalExecutor(paypal) : demoExecutor);
+  const mode = paypal ? "sandbox" : "demo";
+  const baseUrl = (options.publicBaseUrl ?? "http://localhost:4310").replace(/\/+$/, "");
+  const snapshot = (session: Session) => walletSnapshot(session, mode);
 
   const app = express();
   app.disable("x-powered-by");
@@ -71,7 +80,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/api/wallet", (_req, res) => {
-    res.json({ wallet: walletSnapshot(res.locals.session as Session, mode) });
+    res.json({ wallet: snapshot(res.locals.session as Session) });
   });
 
   app.post(
@@ -84,42 +93,112 @@ export function createApp(options: AppOptions = {}) {
       }
       const session = res.locals.session as Session;
       const reply = await chat(session, message, executor);
-      res.json({ reply, wallet: walletSnapshot(session, mode) });
+      res.json({ reply, wallet: snapshot(session) });
     }),
   );
 
   // The Confirm and Cancel buttons. Only a click on our own page reaches these.
-  app.post(
-    "/api/confirm",
-    handler(async (req, res) => {
-      const session = res.locals.session as Session;
-      if (!session.pending || session.pending.proposalId !== req.body?.proposalId) {
-        res.status(409).json({
-          error: "That question is no longer waiting.",
-          wallet: walletSnapshot(session, mode),
-        });
-        return;
-      }
-      const reply = await answerPending(session, "yes", executor);
-      res.json({ reply, wallet: walletSnapshot(session, mode) });
-    }),
-  );
+  for (const answer of ["yes", "no"] as const) {
+    app.post(
+      answer === "yes" ? "/api/confirm" : "/api/cancel",
+      handler(async (req, res) => {
+        const session = res.locals.session as Session;
+        if (!session.pending || session.pending.proposalId !== req.body?.proposalId) {
+          res.status(409).json({
+            error: "That question is no longer waiting.",
+            wallet: snapshot(session),
+          });
+          return;
+        }
+        const reply = await answerPending(session, answer, executor);
+        res.json({ reply, wallet: snapshot(session) });
+      }),
+    );
+  }
 
-  app.post(
-    "/api/cancel",
-    handler(async (req, res) => {
-      const session = res.locals.session as Session;
-      if (!session.pending || session.pending.proposalId !== req.body?.proposalId) {
-        res.status(409).json({
-          error: "That question is no longer waiting.",
-          wallet: walletSnapshot(session, mode),
-        });
-        return;
-      }
-      const reply = await answerPending(session, "no", executor);
-      res.json({ reply, wallet: walletSnapshot(session, mode) });
-    }),
-  );
+  if (paypal) {
+    app.post(
+      "/api/paypal/connect",
+      handler(async (_req, res) => {
+        const session = res.locals.session as Session;
+        if (session.paypal) {
+          res.status(409).json({ error: "PayPal is already connected.", wallet: snapshot(session) });
+          return;
+        }
+        try {
+          const token = await paypal.createSetupToken({
+            returnUrl: `${baseUrl}/api/paypal/return`,
+            cancelUrl: `${baseUrl}/api/paypal/cancel`,
+            description: "Let Nion Pay pay merchants for you, within the limits you set",
+            requestId: randomUUID(),
+          });
+          session.paypalSetupId = token.id;
+          res.json({ approveUrl: token.approveUrl });
+        } catch (err) {
+          console.error("paypal connect failed:", err instanceof Error ? err.message : err);
+          res.status(502).json({ error: "I couldn't reach PayPal to start the connection. Try again in a moment." });
+        }
+      }),
+    );
+
+    // PayPal sends the buyer here after they approve. The setup token must be the
+    // one this visitor started, so nobody can attach a wallet to someone else's session.
+    app.get(
+      "/api/paypal/return",
+      handler(async (req, res) => {
+        const session = res.locals.session as Session;
+        const setupId = session.paypalSetupId;
+        if (!setupId) {
+          res.redirect(session.paypal ? "/?paypal=connected" : "/?paypal=failed");
+          return;
+        }
+        const returned = req.query.approval_token_id;
+        if (returned !== undefined && returned !== setupId) {
+          res.redirect("/?paypal=failed");
+          return;
+        }
+        try {
+          const wallet = await paypal.createSavedWallet(setupId, `wallet-${setupId}`);
+          session.paypal = wallet;
+          session.paypalSetupId = null;
+          res.redirect("/?paypal=connected");
+        } catch (err) {
+          console.error("paypal save failed:", err instanceof Error ? err.message : err);
+          res.redirect("/?paypal=failed");
+        }
+      }),
+    );
+
+    app.get("/api/paypal/cancel", (_req, res) => {
+      (res.locals.session as Session).paypalSetupId = null;
+      res.redirect("/?paypal=cancelled");
+    });
+
+    app.post(
+      "/api/paypal/disconnect",
+      handler(async (_req, res) => {
+        const session = res.locals.session as Session;
+        const wallet = session.paypal;
+        if (wallet) {
+          try {
+            await paypal.deleteSavedWallet(wallet.vaultId);
+          } catch (err) {
+            // A wallet PayPal no longer knows about is already gone; anything else, keep it connected.
+            if (!(err instanceof PayPalError && err.status === 404)) {
+              console.error("paypal disconnect failed:", err instanceof Error ? err.message : err);
+              res.status(502).json({
+                error: "I couldn't disconnect PayPal just now, so it is still connected. Try again.",
+                wallet: snapshot(session),
+              });
+              return;
+            }
+          }
+          session.paypal = null;
+        }
+        res.json({ wallet: snapshot(session) });
+      }),
+    );
+  }
 
   app.use(express.static(path.resolve(here, "../public")));
 

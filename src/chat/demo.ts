@@ -29,6 +29,8 @@ export async function demoChat(
       const names = MERCHANTS.map((m) => m.name).join(", ");
       return `Who should I pay? I can pay ${names}.`;
     }
+    const blocked = executor.ready(session);
+    if (blocked) return blocked;
     if (session.pending) gate.cancel(session.pending.proposalId);
     session.pending = null;
     const out = gate.request({
