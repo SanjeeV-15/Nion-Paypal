@@ -77,6 +77,28 @@ describe("the page's styles", () => {
   });
 });
 
+describe("the default theme", () => {
+  const css = readFileSync("public/styles.css", "utf8");
+
+  it("is light, whatever the visitor's system is set to", () => {
+    expect(css).not.toMatch(/prefers-color-scheme/);
+    const base = /:root\s*\{[^}]*\}/.exec(css)?.[0] ?? "";
+    expect(base).toContain("color-scheme: light");
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{[^}]*color-scheme:\s*dark/);
+  });
+
+  it("is not decided from the system by the page's script either", () => {
+    expect(readFileSync("public/app.js", "utf8")).not.toMatch(/prefers-color-scheme/);
+  });
+
+  it("gives the dark theme the same set of colours as the light one", () => {
+    const names = (block: string) => [...block.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]).sort();
+    const light = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const dark = /:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(names(dark)).toEqual(names(light));
+  });
+});
+
 describe("new visitors", () => {
   it("are limited per network, so nobody can flood the session store", async () => {
     const { base } = await startApp({ newVisitorsPerMinute: 3 });

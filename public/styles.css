@@ -1,6 +1,42 @@
 /* ------------------------------------------------------------------ tokens */
 
+/* Light is the default for everyone. Dark is only used when the visitor chooses it. */
+
 :root {
+  color-scheme: light;
+
+  --ink: #0f172a;
+  --muted: #475569;
+  --faint: #64748b;
+  --bg-base: #e8edfb;
+
+  --glass: rgb(255 255 255 / 56%);
+  --glass-2: rgb(255 255 255 / 80%);
+  --glass-solid: #f6f8ff;
+  --field: rgb(255 255 255 / 65%);
+  --stroke: rgb(255 255 255 / 90%);
+  --stroke-soft: rgb(15 23 42 / 8%);
+  --highlight: rgb(255 255 255 / 70%);
+  --shadow: 0 10px 40px rgb(49 60 130 / 16%);
+
+  --accent-text: #3730a3;
+  --grad: linear-gradient(135deg, #4f46e5, #0284c7);
+  --grad-glow: 0 8px 22px rgb(79 70 229 / 30%);
+
+  --ok: #047857;
+  --ok-bg: rgb(16 185 129 / 16%);
+  --warn: #b45309;
+  --warn-bg: rgb(245 158 11 / 14%);
+  --warn-ink: #7c4a03;
+  --warn-line: rgb(217 119 6 / 42%);
+  --danger: #be123c;
+
+  --aurora-1: rgb(99 102 241 / 34%);
+  --aurora-2: rgb(6 182 212 / 26%);
+  --aurora-3: rgb(217 70 239 / 18%);
+}
+
+:root[data-theme="dark"] {
   color-scheme: dark;
 
   --ink: #eef2ff;
@@ -32,74 +68,6 @@
   --aurora-1: rgb(99 102 241 / 50%);
   --aurora-2: rgb(6 182 212 / 36%);
   --aurora-3: rgb(217 70 239 / 26%);
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --ink: #0f172a;
-  --muted: #475569;
-  --faint: #64748b;
-  --bg-base: #e8edfb;
-
-  --glass: rgb(255 255 255 / 56%);
-  --glass-2: rgb(255 255 255 / 80%);
-  --glass-solid: #f6f8ff;
-  --field: rgb(255 255 255 / 65%);
-  --stroke: rgb(255 255 255 / 90%);
-  --stroke-soft: rgb(15 23 42 / 8%);
-  --highlight: rgb(255 255 255 / 70%);
-  --shadow: 0 10px 40px rgb(49 60 130 / 16%);
-
-  --accent-text: #3730a3;
-  --grad-glow: 0 8px 22px rgb(79 70 229 / 30%);
-
-  --ok: #047857;
-  --ok-bg: rgb(16 185 129 / 16%);
-  --warn: #b45309;
-  --warn-bg: rgb(245 158 11 / 14%);
-  --warn-ink: #7c4a03;
-  --warn-line: rgb(217 119 6 / 42%);
-  --danger: #be123c;
-
-  --aurora-1: rgb(99 102 241 / 34%);
-  --aurora-2: rgb(6 182 212 / 26%);
-  --aurora-3: rgb(217 70 239 / 18%);
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-
-    --ink: #0f172a;
-    --muted: #475569;
-    --faint: #64748b;
-    --bg-base: #e8edfb;
-
-    --glass: rgb(255 255 255 / 56%);
-    --glass-2: rgb(255 255 255 / 80%);
-    --glass-solid: #f6f8ff;
-    --field: rgb(255 255 255 / 65%);
-    --stroke: rgb(255 255 255 / 90%);
-    --stroke-soft: rgb(15 23 42 / 8%);
-    --highlight: rgb(255 255 255 / 70%);
-    --shadow: 0 10px 40px rgb(49 60 130 / 16%);
-
-    --accent-text: #3730a3;
-    --grad-glow: 0 8px 22px rgb(79 70 229 / 30%);
-
-    --ok: #047857;
-    --ok-bg: rgb(16 185 129 / 16%);
-    --warn: #b45309;
-    --warn-bg: rgb(245 158 11 / 14%);
-    --warn-ink: #7c4a03;
-    --warn-line: rgb(217 119 6 / 42%);
-    --danger: #be123c;
-
-    --aurora-1: rgb(99 102 241 / 34%);
-    --aurora-2: rgb(6 182 212 / 26%);
-    --aurora-3: rgb(217 70 239 / 18%);
-  }
 }
 
 /* ------------------------------------------------------------------ base */

@@ -835,17 +835,24 @@ try {
   /* storage can be blocked; the page follows the system theme */
 }
 
+function labelThemeButton() {
+  const dark = rootEl.dataset.theme === "dark";
+  const text = dark ? "Switch to the light theme" : "Switch to the dark theme";
+  els.theme.setAttribute("aria-label", text);
+  els.theme.title = text;
+}
+
 els.theme.addEventListener("click", () => {
-  const systemLight = window.matchMedia("(prefers-color-scheme: light)").matches;
-  const now = rootEl.dataset.theme ?? (systemLight ? "light" : "dark");
-  const next = now === "dark" ? "light" : "dark";
+  const next = rootEl.dataset.theme === "dark" ? "light" : "dark";
   rootEl.dataset.theme = next;
+  labelThemeButton();
   try {
     localStorage.setItem("nion.theme", next);
   } catch {
     /* ignore */
   }
 });
+labelThemeButton();
 
 // ---- start ---------------------------------------------------------------
 
