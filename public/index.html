@@ -64,10 +64,16 @@
           </form>
 
           <p class="hint" id="hint"></p>
-          <label class="toggle">
-            <input type="checkbox" id="speak-replies" checked />
-            Speak replies
-          </label>
+          <div class="voice-options">
+            <label class="toggle">
+              <input type="checkbox" id="speak-replies" checked />
+              Speak replies
+            </label>
+            <label class="toggle" id="voice-picker" hidden>
+              Voice
+              <select id="voice-select"></select>
+            </label>
+          </div>
         </div>
       </section>
 

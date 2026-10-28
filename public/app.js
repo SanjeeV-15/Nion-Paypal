@@ -1,4 +1,14 @@
-import { canListen, canSpeak, cancelSpeech, createListener, speak } from "/voice.js";
+import {
+  availableVoices,
+  canListen,
+  canSpeak,
+  cancelSpeech,
+  createListener,
+  currentVoice,
+  onVoicesChanged,
+  setPreferredVoice,
+  speak,
+} from "/voice.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -12,6 +22,8 @@ const els = {
   send: $("send"),
   hint: $("hint"),
   speak: $("speak-replies"),
+  voicePicker: $("voice-picker"),
+  voiceSelect: $("voice-select"),
   badge: $("mode-badge"),
   banner: $("mode-banner"),
   notice: $("notice"),
@@ -78,6 +90,42 @@ els.speak.addEventListener("change", () => {
     /* ignore */
   }
 });
+
+// ---- voice choice ---------------------------------------------------------------
+
+try {
+  setPreferredVoice(localStorage.getItem("nion.voice"));
+} catch {
+  /* storage can be blocked */
+}
+
+function fillVoices() {
+  const voices = availableVoices();
+  els.voicePicker.hidden = voices.length < 2;
+  const chosen = currentVoice()?.name;
+  els.voiceSelect.replaceChildren(
+    ...voices.map((v) => {
+      const option = document.createElement("option");
+      option.value = v.name;
+      option.textContent = `${v.name} (${v.lang})`;
+      option.selected = v.name === chosen;
+      return option;
+    }),
+  );
+}
+
+els.voiceSelect.addEventListener("change", () => {
+  setPreferredVoice(els.voiceSelect.value);
+  try {
+    localStorage.setItem("nion.voice", els.voiceSelect.value);
+  } catch {
+    /* ignore */
+  }
+  speak("This is how I sound.");
+});
+
+fillVoices();
+onVoicesChanged(fillVoices);
 
 // ---- rendering ---------------------------------------------------------------
 

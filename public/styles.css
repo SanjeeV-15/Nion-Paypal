@@ -456,6 +456,25 @@ h2 {
   align-items: center;
 }
 
+.voice-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  justify-content: center;
+  align-items: center;
+}
+
+.toggle select {
+  font: inherit;
+  font-size: 0.85rem;
+  max-width: 220px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+}
+
 .wallet {
   display: grid;
   gap: 16px;
