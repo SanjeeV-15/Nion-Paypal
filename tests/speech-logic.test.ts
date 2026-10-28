@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEndpointer, rankVoices, scoreVoice } from "../public/speech-logic.js";
+import { createEndpointer, rankVoices, scoreVoice, silenceFor } from "../public/speech-logic.js";
 
 const voice = (name: string, lang = "en-US", localService = true) => ({ name, lang, localService });
 
@@ -207,5 +207,64 @@ describe("createEndpointer with its default timers", () => {
     endpointer.update([{ transcript: "pay twelve dollars to Sunrise Cafe" }]);
     await new Promise((resolve) => realSet(resolve, 60));
     expect(heard).toEqual(["pay twelve dollars to Sunrise Cafe"]);
+  });
+});
+
+describe("silenceFor", () => {
+  it.each(["yes", "Yes.", "no", "Nope", "okay", "confirm", "cancel", "yes please", "No, "])(
+    "answers a plain %j quickly",
+    (text) => {
+      expect(silenceFor(text)).toBe(600);
+    },
+  );
+
+  it.each(["pay twelve dollars to", "pay twelve dollars to the", "how much is left and", "I want to pay a", "um"])(
+    "waits longer when %j trails off",
+    (text) => {
+      expect(silenceFor(text)).toBe(1800);
+    },
+  );
+
+  it("waits a little longer for a payment that has no merchant yet", () => {
+    expect(silenceFor("pay twelve dollars")).toBe(1700);
+    expect(silenceFor("send 48 bucks")).toBe(1700);
+  });
+
+  it("uses a normal wait for a finished request", () => {
+    expect(silenceFor("pay twelve dollars to Sunrise Cafe")).toBe(1000);
+    expect(silenceFor("how much do I have left")).toBe(1000);
+  });
+
+  it("does not mistake a longer sentence for a quick yes", () => {
+    expect(silenceFor("yes but make it five dollars")).not.toBe(600);
+  });
+
+  it("is faster for a yes than for anything else", () => {
+    expect(silenceFor("yes")).toBeLessThan(silenceFor("pay twelve dollars to Sunrise Cafe"));
+  });
+});
+
+describe("createEndpointer with a silence function", () => {
+  it("asks the function for each wait, using the words so far", () => {
+    const waits: number[] = [];
+    const delays: number[] = [];
+    const endpointer = createEndpointer({
+      silenceMs: (text) => {
+        waits.push(text.length);
+        return text === "yes" ? 100 : 900;
+      },
+      onUtterance: () => {},
+      timers: {
+        set: ((_fn: () => void, ms: number) => {
+          delays.push(ms);
+          return delays.length;
+        }) as unknown as typeof setTimeout,
+        clear: (() => {}) as unknown as typeof clearTimeout,
+      },
+    });
+    endpointer.update([{ transcript: "pay" }]);
+    endpointer.update([{ transcript: "yes" }]);
+    expect(waits).toEqual([3, 3]);
+    expect(delays).toEqual([900, 100]);
   });
 });

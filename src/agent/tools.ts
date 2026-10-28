@@ -64,6 +64,12 @@ export interface ToolContext {
 export interface ToolResult {
   content: string;
   isError?: boolean;
+  /**
+   * Words that can be spoken as they are. Payment outcomes are already clear and
+   * exact, so when a turn is just one payment step the model is not asked to
+   * rephrase them: that saves a full round trip and cannot misreport the result.
+   */
+  reply?: string;
 }
 
 const payInput = z.object({ merchant_id: z.string(), amount_usd: z.number() });
@@ -74,8 +80,10 @@ export async function runTool(name: string, input: unknown, ctx: ToolContext): P
       return ok(MERCHANTS.map((m) => ({ id: m.id, name: m.name, description: m.blurb })));
     case "get_wallet":
       return ok(walletFacts(ctx));
-    case "cancel_pending_payment":
-      return ok(cancelPending(ctx.session));
+    case "cancel_pending_payment": {
+      const result = cancelPending(ctx.session);
+      return ok(result, "message" in result ? result.message : undefined);
+    }
     case "pay":
       return pay(input, ctx);
     default:
@@ -91,7 +99,7 @@ async function pay(input: unknown, { session, executor }: ToolContext): Promise<
   if (cents === null) return fail("The amount must be a positive number of dollars with at most two decimal places.");
 
   const blocked = executor.ready(session);
-  if (blocked) return ok({ status: "not_ready", message: blocked });
+  if (blocked) return ok({ status: "not_ready", message: blocked }, blocked);
 
   const { gate } = session;
   // A new request replaces any question that is still open.
@@ -105,17 +113,20 @@ async function pay(input: unknown, { session, executor }: ToolContext): Promise<
   });
   const settled = await settle(session, out, executor);
 
-  return ok({
-    status: settled.kind,
-    message: settled.message,
-    ...(settled.kind === "asked"
-      ? {
-          note:
-            "A confirmation card is now on screen. Only the user can confirm it, by saying yes or tapping " +
-            "Confirm. Ask them briefly and wait. Do not call pay again for this payment.",
-        }
-      : {}),
-  });
+  return ok(
+    {
+      status: settled.kind,
+      message: settled.message,
+      ...(settled.kind === "asked"
+        ? {
+            note:
+              "A confirmation card is now on screen. Only the user can confirm it, by saying yes or tapping " +
+              "Confirm. Ask them briefly and wait. Do not call pay again for this payment.",
+          }
+        : {}),
+    },
+    settled.message,
+  );
 }
 
 function walletFacts({ session, executor }: ToolContext) {
@@ -174,8 +185,8 @@ export function describePending(session: Session): string | null {
   return `${money} to ${gate.merchantLabel(pending.merchantId)}`;
 }
 
-function ok(value: unknown): ToolResult {
-  return { content: JSON.stringify(value) };
+function ok(value: unknown, reply?: string): ToolResult {
+  return { content: JSON.stringify(value), ...(reply ? { reply } : {}) };
 }
 
 function fail(message: string): ToolResult {

@@ -63,9 +63,31 @@ const browserTimers = {
   clear: /** @type {typeof clearTimeout} */ ((id) => clearTimeout(id)),
 };
 
+const QUICK_ANSWER = /^(yes|yeah|yep|yup|sure|ok|okay|no|nope|nah|cancel|stop|confirm)( please)?$/;
+const TRAILING_WORD = /\b(to|and|the|a|an|for|from|at|of|with|but|so|then|my|your|um|uh|er)$/;
+
+/**
+ * How long a pause must last before we treat what was said as finished.
+ * Short for a plain yes or no, long when the sentence is clearly unfinished.
+ * @param {string} text
+ * @returns {number} milliseconds
+ */
+export function silenceFor(text) {
+  const said = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (QUICK_ANSWER.test(said)) return 600;
+  if (TRAILING_WORD.test(said)) return 1800;
+  // "pay twelve dollars" and then a pause usually has a merchant still to come.
+  if (/^(pay|send)\b/.test(said) && !/\bto\b/.test(said)) return 1700;
+  return 1000;
+}
+
 /**
  * @typedef {object} EndpointerOptions
- * @property {number} silenceMs how long a pause counts as "finished"
+ * @property {number | ((text: string) => number)} silenceMs how long a pause counts as "finished", or a function that decides from the words so far
  * @property {(text: string) => void} onUtterance called once with the whole sentence
  * @property {(text: string) => void} [onChange] called with the words so far
  * @property {{ set: typeof setTimeout, clear: typeof clearTimeout }} [timers] replaceable for tests
@@ -111,7 +133,7 @@ export function createEndpointer({ silenceMs, onUtterance, onChange, timers = br
       text = joined;
       onChange?.(joined);
       cancel();
-      timer = timers.set(flush, silenceMs);
+      timer = timers.set(flush, typeof silenceMs === "function" ? silenceMs(joined) : silenceMs);
     },
     /** Send what has been heard so far, now. */
     flush,

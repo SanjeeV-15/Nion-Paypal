@@ -1,7 +1,6 @@
-import { createEndpointer, rankVoices } from "/speech-logic.js";
+import { createEndpointer, rankVoices, silenceFor } from "/speech-logic.js";
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const SILENCE_MS = 1300;
 
 export const canListen = Boolean(Recognition);
 export const canSpeak = "speechSynthesis" in window;
@@ -26,7 +25,7 @@ export function createListener({ onInterim, onFinal, onEnd, onError }) {
 
     let heard = false;
     const mine = createEndpointer({
-      silenceMs: SILENCE_MS,
+      silenceMs: silenceFor,
       onChange: onInterim,
       onUtterance: (text) => {
         heard = true;

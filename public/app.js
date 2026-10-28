@@ -57,6 +57,7 @@ const state = {
   silentRuns: 0,
   wallet: null,
   interim: null,
+  listenTimer: null,
   flash: null, // a one-off message, e.g. the result of connecting PayPal
 };
 
@@ -380,6 +381,7 @@ async function refreshWallet() {
 /** Runs one request, shows the reply, speaks it, then goes back to listening if the conversation is on. */
 async function runTurn(request, userText) {
   const id = ++state.turn;
+  clearTimeout(state.listenTimer);
   listener.stop();
   cancelSpeech();
   clearInterim();
@@ -399,20 +401,32 @@ async function runTurn(request, userText) {
 
   // A newer turn took over while we waited; it owns the orb now.
   if (id !== state.turn) return;
+  let spoke = false;
   if (reply && els.speak.checked && canSpeak) {
     setPhase("speaking");
     await speak(reply);
+    spoke = true;
     if (id !== state.turn) return;
   }
-  afterTurn();
+  afterTurn(id, spoke);
 }
 
-function afterTurn() {
-  if (state.conversation && canListen) {
-    listen();
-  } else {
+// Speakers keep ringing for a moment, and the mic would hear the tail of Nion's own voice.
+const ECHO_SETTLE_MS = 400;
+
+function afterTurn(id, spoke) {
+  if (!(state.conversation && canListen)) {
     setPhase("idle");
+    return;
   }
+  setPhase("listening");
+  clearTimeout(state.listenTimer);
+  state.listenTimer = setTimeout(
+    () => {
+      if (id === state.turn && state.conversation) listener.start();
+    },
+    spoke ? ECHO_SETTLE_MS : 0,
+  );
 }
 
 function send(text) {
@@ -518,6 +532,7 @@ function startConversation() {
 function endConversation(message) {
   state.conversation = false;
   state.turn += 1;
+  clearTimeout(state.listenTimer);
   listener.stop();
   cancelSpeech();
   clearInterim();

@@ -6,7 +6,7 @@ import type { ChatLimiter } from "../limiter.js";
 import { answerPending } from "../payments.js";
 import type { Executor } from "../payments.js";
 import type { Session } from "../sessions.js";
-import { describePending, runTool, TOOLS } from "./tools.js";
+import { describePending, runTool, TOOLS, type ToolResult } from "./tools.js";
 
 type Message = Anthropic.Beta.BetaMessageParam;
 type Content = Anthropic.Beta.BetaContentBlock;
@@ -28,6 +28,8 @@ export interface ClaudeChatOptions {
 
 const MAX_HISTORY = 20;
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+// Only these models take the server-side refusal fallback; others reject the parameter.
+const SUPPORTS_FALLBACKS = /^claude-(sonnet-5-5|opus-5-5|opus-5|fable-5-1)$/;
 
 export const SYSTEM_PROMPT = `You are Nion Pay, a voice assistant that pays merchants for the user with PayPal, inside limits the user set. Your replies are spoken aloud, so keep them to one or two short sentences in plain words, with no lists, markdown, emoji or symbols. Say amounts in words, like "48 dollars".
 
@@ -100,8 +102,7 @@ export function createClaudeChat(options: ClaudeChatOptions): ChatHandler {
         // Short, quick answers suit a voice conversation.
         output_config: { effort: "low" },
         // If a safety classifier declines, let the API retry on a fallback model.
-        betas: [FALLBACK_BETA],
-        fallbacks: "default",
+        ...(SUPPORTS_FALLBACKS.test(model) ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
       });
 
       options.onUsage?.({
@@ -120,9 +121,11 @@ export function createClaudeChat(options: ClaudeChatOptions): ChatHandler {
 
       // One at a time and in order: payments must never run in parallel.
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+      const outcomes: ToolResult[] = [];
       for (const call of calls) {
         if (call.name === "pay" || call.name === "cancel_pending_payment") turn.acted = true;
         const result = await runTool(call.name, call.input, { session, executor });
+        outcomes.push(result);
         results.push({
           type: "tool_result",
           tool_use_id: call.id,
@@ -130,6 +133,10 @@ export function createClaudeChat(options: ClaudeChatOptions): ChatHandler {
           ...(result.isError ? { is_error: true } : {}),
         });
       }
+      // A lone payment step has an exact answer already; skip the second model call.
+      const only = outcomes[0];
+      if (outcomes.length === 1 && only?.reply) return only.reply;
+
       messages.push({ role: "user", content: results });
     }
     return "I got tangled up on that one. Could you say it again?";

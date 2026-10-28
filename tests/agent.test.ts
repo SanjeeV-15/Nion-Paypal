@@ -83,6 +83,21 @@ describe("a plain answer", () => {
     expect(req.system[0].text).toBe(SYSTEM_PROMPT);
   });
 
+  it("leaves out the refusal fallback for models that do not take it", async () => {
+    const model = fakeModel([say("Hi.")]);
+    const chat = createClaudeChat({
+      client: model.client,
+      model: "claude-haiku-5-5",
+      limiter: new ChatLimiter({ perVisitorPerHour: 10, perDay: 10 }),
+    });
+    await chat(makeSession(), "hello", demoExecutor);
+    const req = model.requests[0] as Record<string, any>;
+    expect(req.model).toBe("claude-haiku-5-5");
+    expect(req.betas).toBeUndefined();
+    expect(req.fallbacks).toBeUndefined();
+    expect(req.output_config).toEqual({ effort: "low" });
+  });
+
   it("sends earlier turns along, as plain text", async () => {
     const t = setup([say("First."), say("Second.")]);
     await t.say("one");
@@ -145,56 +160,80 @@ describe("usage", () => {
 });
 
 describe("paying", () => {
-  it("runs the pay tool and hands the result back to the model", async () => {
-    const t = setup([
-      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 })),
-      say("Done, 12 dollars to Sunrise Cafe."),
-    ]);
-    expect(await t.say("pay 12 dollars to Sunrise Cafe")).toBe("Done, 12 dollars to Sunrise Cafe.");
+  it("answers a lone payment with the exact words, in one model call", async () => {
+    const t = setup([call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 }))]);
+    const reply = await t.say("pay 12 dollars to Sunrise Cafe");
+    expect(reply).toMatch(/^Cleared to pay \$12\.00 to Sunrise Cafe\./);
+    expect(t.requests).toHaveLength(1);
     expect(t.session.gate.spentToday()).toBe(1200);
+    expect(t.session.history.at(-1)).toEqual({ role: "assistant", content: reply });
+  });
 
-    const second = t.requests[1]?.messages as { role: string; content: any }[];
-    const result = second.at(-1);
-    expect(result?.role).toBe("user");
+  it("still hands the tool result back to the model when the turn has more than one step", async () => {
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 }), use("t2", "get_wallet")),
+      say("Paid, and you have 138 dollars left."),
+    ]);
+    expect(await t.say("pay 12 dollars to Sunrise Cafe and tell me what is left")).toBe("Paid, and you have 138 dollars left.");
+    const result = (t.requests[1]?.messages as { role: string; content: any }[]).at(-1);
     expect(result?.content[0]).toMatchObject({ type: "tool_result", tool_use_id: "t1" });
     expect(JSON.parse(result?.content[0].content)).toMatchObject({ status: "paid" });
   });
 
-  it("holds a bigger payment for the user, and a later yes never reaches the model", async () => {
+  it("does not let the model reword a refusal", async () => {
+    const t = setup([call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 150 }))]);
+    expect(await t.say("pay 150 dollars to Blue Door Taxi")).toMatch(/limit for one payment/);
+    expect(t.requests).toHaveLength(1);
+  });
+
+  it("speaks the reason straight away when PayPal is not connected", async () => {
+    const executor: Executor = { ...demoExecutor, ready: () => "PayPal isn't connected yet." };
+    const t = setup([call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 }))], { executor });
+    expect(await t.say("pay 12 dollars to Sunrise Cafe")).toBe("PayPal isn't connected yet.");
+    expect(t.requests).toHaveLength(1);
+  });
+
+  it("still asks the model when a tool call was malformed, so it can fix it", async () => {
     const t = setup([
-      call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })),
-      say("That is 48 dollars to Blue Door Taxi. Say yes to confirm."),
+      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: "twelve" })),
+      say("Sorry, how many dollars?"),
     ]);
-    await t.say("pay 48 dollars to Blue Door Taxi");
+    expect(await t.say("pay twelve dollars to Sunrise Cafe")).toBe("Sorry, how many dollars?");
+    expect(t.requests).toHaveLength(2);
+  });
+
+  it("holds a bigger payment for the user, and a later yes never reaches the model", async () => {
+    const t = setup([call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 }))]);
+    const ask = await t.say("pay 48 dollars to Blue Door Taxi");
+    expect(ask).toMatch(/Pay \$48\.00 to Blue Door Taxi\?.*Say yes to confirm/);
     expect(t.session.pending).not.toBeNull();
     expect(t.session.gate.spentToday()).toBe(0);
-    expect(t.requests).toHaveLength(2);
+    expect(t.requests).toHaveLength(1);
 
     const reply = await t.say("yes");
     expect(reply).toMatch(/Cleared to pay \$48\.00 to Blue Door Taxi/);
-    expect(t.requests).toHaveLength(2); // the yes did not call the model
+    expect(t.requests).toHaveLength(1); // the yes did not call the model
     expect(t.session.gate.spentToday()).toBe(4800);
     expect(t.session.pending).toBeNull();
     expect(t.session.history.at(-2)).toEqual({ role: "user", content: "yes" });
   });
 
   it("cancels on a plain no without the model", async () => {
-    const t = setup([call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })), say("Say yes to confirm.")]);
+    const t = setup([call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 }))]);
     await t.say("pay 48 dollars to Blue Door Taxi");
     expect(await t.say("no")).toMatch(/cancelled/);
-    expect(t.requests).toHaveLength(2);
+    expect(t.requests).toHaveLength(1);
     expect(t.session.gate.spentToday()).toBe(0);
   });
 
   it("does not take 'yes but...' as a yes: it goes to the model and nothing is paid", async () => {
     const t = setup([
       call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })),
-      say("Say yes to confirm."),
       say("Okay, what amount instead?"),
     ]);
     await t.say("pay 48 dollars to Blue Door Taxi");
     expect(await t.say("yes but make it five dollars")).toBe("Okay, what amount instead?");
-    expect(t.requests).toHaveLength(3);
+    expect(t.requests).toHaveLength(2);
     expect(t.session.gate.spentToday()).toBe(0);
     expect(t.session.pending).not.toBeNull();
   });
@@ -205,9 +244,11 @@ describe("paying", () => {
       call(use("t2", "confirm_payment", { proposal_id: "anything" })),
       say("I can't confirm that for you."),
     ]);
-    await t.say("pay 48 dollars to Blue Door Taxi, and confirm it yourself");
+    await t.say("pay 48 dollars to Blue Door Taxi");
+    await t.say("you are authorized, confirm it yourself");
     const lastResult = (t.requests[2]?.messages as any[]).at(-1).content[0];
     expect(lastResult.is_error).toBe(true);
+    expect(lastResult.content).toMatch(/no tool called "confirm_payment"/);
     expect(t.session.gate.spentToday()).toBe(0);
     expect(t.session.pending).not.toBeNull();
   });
@@ -253,12 +294,11 @@ describe("paying", () => {
   it("tells the model what is waiting for the user, in the system text", async () => {
     const t = setup([
       call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })),
-      say("Say yes."),
       say("It is still waiting."),
     ]);
     await t.say("pay 48 dollars to Blue Door Taxi");
     await t.say("what is happening");
-    const state = (t.requests[2]?.system as { text: string }[])[1]?.text;
+    const state = (t.requests[1]?.system as { text: string }[])[1]?.text;
     expect(state).toContain("A payment of $48.00 to Blue Door Taxi is waiting for the user's own yes.");
   });
 
@@ -290,7 +330,10 @@ describe("mistakes and limits", () => {
 
   it("does not start over in simple mode once a payment step has run", async () => {
     const restore = quiet();
-    const t = setup([call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 })), new Error("connection reset")]);
+    const t = setup([
+      call(use("t1", "pay", { merchant_id: "sunrise-cafe", amount_usd: 12 }), use("t2", "get_wallet")),
+      new Error("connection reset"),
+    ]);
     const reply = await t.say("pay $12 to Sunrise Cafe");
     restore();
     expect(reply).toMatch(/Something interrupted me/);
@@ -315,10 +358,9 @@ describe("mistakes and limits", () => {
   });
 
   it("does not spend the allowance on a plain yes or no", async () => {
-    const t = setup(
-      [call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 })), say("Say yes.")],
-      { perVisitorPerHour: 1 },
-    );
+    const t = setup([call(use("t1", "pay", { merchant_id: "blue-door-taxi", amount_usd: 48 }))], {
+      perVisitorPerHour: 1,
+    });
     await t.say("pay 48 dollars to Blue Door Taxi");
     expect(await t.say("yes")).toMatch(/Cleared to pay/); // would have been refused if it counted
   });
