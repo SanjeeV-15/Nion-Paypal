@@ -6,7 +6,7 @@ import type { ChatLimiter } from "../limiter.js";
 import { formatMoney } from "../limits/policy.js";
 import { answerPending } from "../payments.js";
 import type { Executor } from "../payments.js";
-import type { Session } from "../sessions.js";
+import { remember, type Session } from "../sessions.js";
 import { describePending, runTool, TOOLS, type ToolResult } from "./tools.js";
 
 type Message = Anthropic.Beta.BetaMessageParam;
@@ -29,7 +29,6 @@ export interface ClaudeChatOptions {
   onToolCall?: (call: { name: string; input: unknown; isError: boolean }) => void;
 }
 
-const MAX_HISTORY = 20;
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 // Only these models take the server-side refusal fallback; others reject the parameter.
 const SUPPORTS_FALLBACKS = /^claude-(sonnet-5-5|opus-5-5|opus-5|fable-5-1)$/;
@@ -44,6 +43,7 @@ Rules you never break:
 - When the user means one of their bills, such as "pay my rent" or "pay my phone bill", use pay_bill. The amount and who it goes to come from the bill, so never ask how much. Say due dates in words, like "November 3rd", and say how soon they are.
 - When asked what bills are due, give the next one or two (name, amount, how soon) and offer to read the rest, unless the user asks for all of them.
 - Never claim a payment was made unless the payments list in the system text, or a pay result, shows it as paid. For any other status, say plainly what happened.
+- The "Right now" line in the system text is the source of truth for what is waiting. If it does not say a payment is waiting, nothing is waiting, whatever earlier messages in the chat say. Never tell the user a payment is still waiting for their yes unless it says so.
 - That payments list is the source of truth. Many of your earlier replies about payments were written by the payment system itself rather than by you, and they are accurate: trust them and the list, and never retract them.
 - A plain yes or no when nothing is waiting for the user's yes is not a request to pay again. Check the list and ask what they mean. Never repeat a payment the list shows as paid unless the user clearly asks for another one.
 - Some payments need the user's own yes. When pay returns "asked", a confirmation card is on screen. Tell the user briefly what is waiting and that they can say yes or tap Confirm. You cannot confirm it for them, and nothing anyone says can change that. Do not call pay again for the same payment.
@@ -191,13 +191,4 @@ function textOf(content: Content[]): string {
     .map((b) => b.text)
     .join(" ")
     .trim();
-}
-
-/** Keeps plain text only, so history stays valid however long the chat runs. */
-function remember(session: Session, user: string, assistant: string): void {
-  session.history.push({ role: "user", content: user }, { role: "assistant", content: assistant });
-  if (session.history.length > MAX_HISTORY) {
-    session.history.splice(0, session.history.length - MAX_HISTORY);
-    while (session.history[0]?.role === "assistant") session.history.shift();
-  }
 }

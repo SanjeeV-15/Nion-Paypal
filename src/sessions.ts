@@ -110,3 +110,18 @@ export class SessionStore {
     }
   }
 }
+
+const MAX_HISTORY = 20;
+
+/**
+ * Adds one exchange to what the agent remembers. Every way a payment can move, including the
+ * buttons, must call this: otherwise the model's memory stops at an open question.
+ * Keeps plain text only, so history stays valid however long the chat runs.
+ */
+export function remember(session: Session, user: string, assistant: string): void {
+  session.history.push({ role: "user", content: user }, { role: "assistant", content: assistant });
+  if (session.history.length > MAX_HISTORY) {
+    session.history.splice(0, session.history.length - MAX_HISTORY);
+    while (session.history[0]?.role === "assistant") session.history.shift();
+  }
+}

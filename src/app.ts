@@ -12,7 +12,7 @@ import { payeeName } from "./merchants.js";
 import { PayPalError, type PayPalClient } from "./paypal/client.js";
 import { PayPalExecutor } from "./paypal/executor.js";
 import { answerPending, demoExecutor, type Executor } from "./payments.js";
-import { SessionStore, type Session } from "./sessions.js";
+import { remember, SessionStore, type Session } from "./sessions.js";
 import { walletSnapshot } from "./wallet.js";
 
 const COOKIE = "nion_sid";
@@ -173,7 +173,9 @@ export function createApp(options: AppOptions = {}) {
         res.status(404).json({ error: "There is no bill like that.", wallet: snapshot(session) });
         return;
       }
+      const bill = session.bills.find((b) => b.id === billId);
       const { message: reply } = await payBill(session, billId, executor);
+      remember(session, `I tapped Pay on my ${bill?.name.toLowerCase() ?? ""} bill.`, reply);
       res.json({ reply, wallet: snapshot(session) });
     }),
   );
@@ -192,6 +194,7 @@ export function createApp(options: AppOptions = {}) {
           return;
         }
         const { message: reply } = await answerPending(session, answer, executor);
+        remember(session, answer === "yes" ? "I tapped Confirm." : "I tapped Cancel.", reply);
         res.json({ reply, wallet: snapshot(session) });
       }),
     );

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppOptions } from "../src/app.js";
+import { createClaudeChat, type AnthropicLike } from "../src/agent/claude.js";
+import { ChatLimiter } from "../src/limiter.js";
 import { startApp as start, stopApps } from "./helpers.js";
 import type { WalletSnapshot } from "../src/wallet.js";
 
@@ -390,5 +392,62 @@ describe("starting the demo over", () => {
     const { call } = await start();
     const res = await call("/api/reset", "x", { headers: { "Content-Type": "text/plain" } });
     expect(res.status).toBe(415);
+  });
+});
+
+describe("what the model remembers after a button", () => {
+  /** A model that asks to pay on the first turn and then just chats, recording what it was shown. */
+  function modelThatPays() {
+    const seen: { messages: { role: string; content: unknown }[]; system: unknown }[] = [];
+    let turns = 0;
+    const client = {
+      beta: {
+        messages: {
+          create: async (params: { messages: { role: string; content: unknown }[]; system: unknown }) => {
+            seen.push(structuredClone({ messages: params.messages, system: params.system }));
+            turns++;
+            if (turns === 1) {
+              return {
+                stop_reason: "tool_use",
+                content: [{ type: "tool_use", id: "t1", name: "pay", input: { merchant_id: "blue-door-taxi", amount_usd: 48 } }],
+              };
+            }
+            return { stop_reason: "end_turn", content: [{ type: "text", text: "Anything else?" }] };
+          },
+        },
+      },
+    } as unknown as AnthropicLike;
+    return { seen, chat: createClaudeChat({ client, model: "claude-sonnet-5-5", limiter: new ChatLimiter({ perVisitorPerHour: 50, perDay: 500 }) }) };
+  }
+
+  it("includes the confirmed payment, so it does not think the question is still open", async () => {
+    const m = modelThatPays();
+    const { call } = await start({ chat: m.chat });
+    const ask = await call("/api/chat", chat("pay forty-eight dollars to Blue Door Taxi"));
+    expect(ask.json.wallet.pending).not.toBeNull();
+
+    await call("/api/confirm", { proposalId: ask.json.wallet.pending.proposalId });
+    await call("/api/chat", chat("can you increase my limit"));
+
+    const shown = m.seen.at(-1)!.messages.map((x) => `${x.role}: ${typeof x.content === "string" ? x.content : "[blocks]"}`);
+    const asked = shown.findIndex((l) => /Say yes to confirm/.test(l));
+    const paid = shown.findIndex((l) => /Cleared to pay \$48\.00 to Blue Door Taxi/.test(l));
+    expect(asked).toBeGreaterThanOrEqual(0);
+    expect(paid).toBeGreaterThan(asked);
+    expect(shown.at(-1)).toBe("user: can you increase my limit");
+  });
+
+  it("records a cancel, and a bill Pay button, the same way", async () => {
+    const m = modelThatPays();
+    const { call } = await start({ chat: m.chat });
+    const ask = await call("/api/chat", chat("pay forty-eight dollars to Blue Door Taxi"));
+    await call("/api/cancel", { proposalId: ask.json.wallet.pending.proposalId });
+    const bill = await call("/api/bills/pay", { billId: "rent" });
+    await call("/api/chat", chat("hello"));
+
+    const shown = m.seen.at(-1)!.messages.map((x) => (typeof x.content === "string" ? x.content : "[blocks]"));
+    expect(shown).toContain("I tapped Cancel.");
+    expect(shown).toContain("I tapped Pay on my rent bill.");
+    expect(shown).toContain(bill.json.reply);
   });
 });
